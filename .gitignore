@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.aim
+checkpoints
+lightning_logs
+data
+report/figures/
+report/tables
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.pdf
+results/*.json
+results/backup/*.json
+.DS_Store
