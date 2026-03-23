@@ -30,7 +30,7 @@ def run_baseline_training():
 
 
     trainer = pl.Trainer(
-        max_epochs=10,
+        max_epochs=1,
         accelerator="auto",
         devices=1,
         callbacks=[checkpoint_callback, lr_monitor],

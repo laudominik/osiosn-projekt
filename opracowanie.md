@@ -41,7 +41,7 @@ computer_keyboard, clock, telephone, television | electrical_waste
 Procedura zaszumiania etykiet:
 - losowe podmienianie etykiet z $\mathcal{P}(y^{gt} \ne y^{label}) = 0.5$
 - szum gaussowski z $\sigma=0.03$
-- zamiana obrazka na zdjęcie psa z $\mathcal{P}(x="dog" / x^{gt})$
+- zamiana obrazka na zdjęcie psa z $\mathcal{P}(x="dog" / x^{gt})=0.1$
 
 
 

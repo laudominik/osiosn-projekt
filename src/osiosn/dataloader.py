@@ -17,11 +17,12 @@ class AddGaussianNoise(object):
 
 
 class WasteSortingDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir: str = './data', batch_size: int = 64, noise_rate: float = 0.3, image_noise_std=0.03, seed: int = 42):
+    def __init__(self, data_dir: str = './data', batch_size: int = 64, noise_rate: float = 0.5, image_noise_std=0.01, p_dog=0.1, seed: int = 42):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.noise_rate = noise_rate
+        self.p_dog = p_dog
         self.seed = seed
         
         self.class_mapping = {
@@ -71,28 +72,48 @@ class WasteSortingDataModule(pl.LightningDataModule):
         n_noisy = int(self.noise_rate * n_samples)
         
         noise_indices = np.random.choice(n_samples, n_noisy, replace=False)
-        unique_classes = list(set(self.class_mapping.values()))
         
         for idx in noise_indices:
             current_label = noisy_targets[idx]
-            possible_labels = [c for c in unique_classes if c != current_label]
-            noisy_targets[idx] = np.random.choice(possible_labels)
+            # Asymmetric noise logic:
+            # 0 (recyclable) -> mixed with 2 (electrical)
+            # 1 (bio) -> mixed with 0 (recyclable)
+            # 2 (electrical) -> mixed with 0 (recyclable)
+            if current_label == 0:
+                noisy_targets[idx] = np.random.choice([1, 2], p=[0.2, 0.8])
+            elif current_label == 1:
+                noisy_targets[idx] = np.random.choice([0, 2], p=[0.8, 0.2])
+            elif current_label == 2:
+                noisy_targets[idx] = np.random.choice([0, 1], p=[0.7, 0.3])
             
         return noisy_targets.tolist()
 
     def setup(self, stage=None):
         if stage == 'fit' or stage is None:
             base_dataset = datasets.CIFAR100(self.data_dir, train=True)
+            original_targets = np.array(base_dataset.targets)
+            dog_indices = np.where(original_targets == 35)[0]
+            dog_data = base_dataset.data[dog_indices]
+            
             base_dataset = self._filter_and_remap(base_dataset)
             
             train_size = int(0.8 * len(base_dataset))
             val_size = len(base_dataset) - train_size
-            generator = torch.Generator().manual_seed(self.seed) # Wymóg Etapu 3 [cite: 66]
+            generator = torch.Generator().manual_seed(self.seed) # Wymóg Etapu 3
             
             indices = torch.randperm(len(base_dataset), generator=generator).tolist()
             train_indices = indices[:train_size]
             val_indices = indices[train_size:]
 
+            np.random.seed(self.seed)
+            n_dogs_to_inject = int(self.p_dog * len(train_indices)) 
+            dog_injection_indices = np.random.choice(train_indices, n_dogs_to_inject, replace=False)
+            
+            source_dog_indices = np.random.choice(len(dog_data), n_dogs_to_inject, replace=True)
+            source_dogs = dog_data[source_dog_indices]
+            
+            base_dataset.data[dog_injection_indices] = source_dogs
+            
             all_targets = np.array(base_dataset.targets)
             train_targets_subset = all_targets[train_indices].tolist()
             
