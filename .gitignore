@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+.aim
+checkpoints
+lightning_logs
+data
