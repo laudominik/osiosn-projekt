@@ -10,7 +10,7 @@ def run_baseline_training():
     pl.seed_everything(42, workers=True)
     torch.set_float32_matmul_precision('medium')
 
-    dm = WasteSortingDataModule(batch_size=64, noise_rate=0.15, seed=42)
+    dm = WasteSortingDataModule(batch_size=64, seed=42)
     model = WasteSortingModule(num_classes=3, learning_rate=1e-3)
     checkpoint_callback = ModelCheckpoint(
         monitor='val_acc',

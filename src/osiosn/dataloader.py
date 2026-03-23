@@ -6,8 +6,18 @@ import numpy as np
 import random
 import copy
 
+
+class AddGaussianNoise(object):
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+        
+    def __call__(self, tensor):
+        return tensor + torch.randn(tensor.size()) * self.std + self.mean
+
+
 class WasteSortingDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir: str = './data', batch_size: int = 64, noise_rate: float = 0.0, seed: int = 42):
+    def __init__(self, data_dir: str = './data', batch_size: int = 64, noise_rate: float = 0.3, image_noise_std=0.03, seed: int = 42):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
@@ -15,15 +25,19 @@ class WasteSortingDataModule(pl.LightningDataModule):
         self.seed = seed
         
         self.class_mapping = {
-            9: 0, 16: 0, 28: 0, 61: 0, # Recycling (plastic things...)
-            0: 1, 51: 1, 53: 1, 57: 1, # Bio (fruits, mushrooms...)
-            39: 2, 22: 2, 86: 2, 87: 2 # Nonrecyclable (like some electrical hardware, tv and so on...)
+            # bottle, bowl, can, cup, plate
+            9: 0, 10: 0, 16: 0, 28: 0, 61: 0, # recyclable
+            # apple, mushroom, orange, pear, sweet_pepper
+            0: 1, 51: 1, 53: 1, 57: 1, 83: 1, # bio
+            # computer_keyboard, clock, telephone, television
+            39: 2, 22: 2, 86: 2, 87: 2 # electrical_waste
         }
 
         self.transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
+            AddGaussianNoise(0., image_noise_std),
             transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))
         ])
 
@@ -71,12 +85,24 @@ class WasteSortingDataModule(pl.LightningDataModule):
             base_dataset = datasets.CIFAR100(self.data_dir, train=True)
             base_dataset = self._filter_and_remap(base_dataset)
             
-            base_dataset.targets = self._add_label_noise(base_dataset.targets)
-
             train_size = int(0.8 * len(base_dataset))
             val_size = len(base_dataset) - train_size
-            generator = torch.Generator().manual_seed(self.seed)
-            train_subset, val_subset = torch.utils.data.random_split(base_dataset, [train_size, val_size], generator=generator)
+            generator = torch.Generator().manual_seed(self.seed) # Wymóg Etapu 3 [cite: 66]
+            
+            indices = torch.randperm(len(base_dataset), generator=generator).tolist()
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
+
+            all_targets = np.array(base_dataset.targets)
+            train_targets_subset = all_targets[train_indices].tolist()
+            
+            noisy_train_targets = self._add_label_noise(train_targets_subset)
+            
+            for i, idx in enumerate(train_indices):
+                base_dataset.targets[idx] = noisy_train_targets[i]
+
+            train_subset = torch.utils.data.Subset(base_dataset, train_indices)
+            val_subset = torch.utils.data.Subset(base_dataset, val_indices)
 
             self.train_dataset = TransformWrapper(train_subset, self.transform_train)
             self.val_dataset = TransformWrapper(val_subset, self.transform_eval)
