@@ -63,20 +63,22 @@
 \maketitle
 
 \begin{abstract}
-Projekt dotyczy budowy i optymalizacji klasyfikatora segregacji odpadów na
-potrzeby wbudowanego urządzenia inteligentnego kosza.
+Projekt dotyczy budowy i optymalizacji klasyfikatora odpadów na
+potrzeby wbudowanego inteligentnego kosza na śmieci.
 Jako model bazowy zastosowano MobileNetV2~x0.75 wytrenowany na zbiorze
 CIFAR-100, który następnie dostosowano metodą \textit{transfer learning} do
 3-klasowego zadania rozróżniania odpadów: recyclable, bio oraz
 electrical\_waste.
-W ramach projektu przebadano metody przerzedzania modelu (L1 unstructured oraz
-LN structured channel pruning), kwantyzację (PTQ INT8, QAT INT8) oraz
-optymalizację procesu uczenia (augmentacja danych, regularyzacja dropout,
-optymalizatory AdamW/SGD, harmonogramy LR).
-Najlepszy zoptymalizowany wariant osiągnął
-\textbf{85.8\%} dokładności przy rozmiarze modelu \textbf{1.67~MB} –
-\textbf{5.6-krotna} redukcja rozmiaru modelu odniesienia (9.44~MB)
-i \textbf{4-krotne} przyspieszenie wnioskowania na CPU.
+Przebadano przerzedzanie modelu (unstructured i structured channel pruning),
+kwantyzację (PTQ dynamiczna INT8, QAT FX statyczna INT8) oraz optymalizację
+procesu uczenia (augmentacja danych, dropout, optymalizatory Adam/AdamW/SGD,
+harmonogramy LR).
+Model finalny łączy przerzedzanie strukturalne 15\% kanałów z doszkalaniem
+kwantyzacyjnym (QAT FX INT8) i optymalnymi hiperparametrami, osiągając
+rozmiar \textbf{$\approx$1.2~MB} (vs.\ 5.39~MB baseline, \textbf{4.5$\times$}
+kompresja) i czas wnioskowania \textbf{$\approx$1.4~ms/obraz} na CPU
+(\textbf{2.2$\times$} szybciej), przy zachowaniu dokładności na poziomie
+$\approx\mathbf{84\%}$ dla danych zaszumionych.
 \end{abstract}
 
 \textbf{Słowa klucze:} Śmieci, Śmietniki, System Kaucyjny
@@ -114,12 +116,15 @@ rozmiaru i szybkości działania.
 
 \subsection{Wymogi sprzętu śmietnika}
 
-Założona platforma uruchomieniowa wymaga, aby model:
+Założona platforma uruchomieniowa to niskobudżetowe MCU z procesorem typu Cortex-M7
+(np.\ STM32H7) lub z modułem z NPU (np.\ STM32N6). Wymagania wobec optymalizowanego modelu:
 \begin{itemize}
-  \item zmieścił się w max. 1 MB pamięci Flash/RAM,
-  \item wykonywał klasyfikację w czasie poniżej 10~ms/obraz przy częstotliwości
-        zegara 1~GHz,
-  \item zachował dokładność co najmniej 80\% (TODO: cytacja).
+  \item \textbf{Rozmiar}: poniżej 1.5~MB (Flash dostępna na typowych MCU
+        z NPU);
+  \item \textbf{Latencja}: poniżej 2~ms/obraz przy pracy na CPU
+        1~GHz, bez dedykowanego akceleratora;
+  \item \textbf{Dokładność}: co najmniej 80\% na zbiorze testowym,
+        również przy realistycznym szumie etykiet i obrazów.
 \end{itemize}
 
 \section{Zbiór danych i model bazowy}
@@ -290,9 +295,9 @@ uzasadnieniem stosowania technik przerzedzania. Sprawdzamy zatem użyteczność 
 \subsubsection*{Kryteria przerzedzania}
 \begin{itemize}
   \item \textbf{L1 Unstructured}: usuwa indywidualne wagi o najmniejszej
-        normie $\ell_1$; nie zmienia kształtu macierzy wag.
+        normie $\ell_1$; nie zmienia wymiaru macierzy wag.
   \item \textbf{LN Structured (dim=0)}: usuwa całe filtry o najmniejszej
-        łącznej normie $\ell_1$; zmienia kształt modelu, umożliwiając
+        łącznej normie $\ell_1$; zmienia architekturę modelu, umożliwiając
         rekonstrukcję mniejszej architektury.
 \end{itemize}
 
@@ -362,213 +367,218 @@ Na Rys. \ref{fig:pruning-tradeoff} widać, że rzadkość nieustrukturyzowana je
   \label{fig:pruning}
 \end{figure}
 
-% \subsection{Analiza wyników}
-
-% \paragraph{Przerzedzanie niestrukturalne (L1 Unstructured)}
-% Do 50\% rzadkości spadek dokładności jest akceptowalny ($-1.7$~pp).
-% Powyżej 70\% następuje gwałtowny spadek ($-3.8$~pp przy 70\%,
-% $-9.1$~pp przy 90\%).
-% Ważna obserwacja: przerzedzanie niestrukturalne \textbf{nie zmniejsza} czasu
-% wnioskowania ani rozmiaru pliku (zera nadal są przechowywane i mnożone),
-% co potwierdzają wyniki w~Tabeli~\ref{tab:pruning} -- CPU~ms jest zbliżone
-% do baseline.
-
-% \paragraph{Przerzedzanie strukturalne (LN Structured)}
-% Daje nieco gorsze wyniki dokładności ($-2.0$~pp przy 30\% vs.\ $-0.6$~pp
-% dla unstructured), jednak zapewnia \textbf{rzeczywistą} redukcję rozmiaru
-% modelu i czasu wnioskowania.
-% Przy rzadkości 50\% model jest $2\times$ mniejszy i działa $\approx1.9\times$
-% szybciej na CPU.
-
-% \paragraph{Uwaga o bibliotekach}
-% Jak wskazano w literaturze~\cite{chetlur2014cudnn}, biblioteki BLAS nie są
-% zoptymalizowane dla rzadkich macierzy -- przyspieszenie z unstructured
-% pruning wymaga dedykowanych jąder (np.\ cuSPARSE, biblioteka SpMM).
-
 \section{Kwantyzacja}
 
 \subsection{Metoda}
 
-Kwantyzacja polega na reprezentacji parametrów modelu z mniejszą precyzją bitową co przy przejściu na 
-$K$ razy mniej bitów (np. z FP32 na INT8 $K=4$) zmniejsza rozmiar modelu $K$ krotnie.
+Kwantyzacja polega na zastąpieniu 32-bitowych liczb zmiennoprzecinkowych
+(FP32) reprezentacją o mniejszej precyzji. Przy przejściu FP32~$\to$~INT8
+każdy parametr zajmuje 4-krotnie mniej bitów, co bezpośrednio przekłada się
+na rozmiar pliku i może przyspieszyć wnioskowanie (dzięki sprzętowej
+akceleracji operacji całkowitoliczbowych).
 
-\subsubsection*{Strategie kwantyzacji}
+\subsubsection*{PTQ}
 
-Stosujemy dwie strategie kwantyzacji.
-\begin{itemize}
-  \item Post-Training Quantization (PTQ) - 
-  \item Quantization-Aware Training (QAT) - w tym przypadku stosujemy \texttt{torch.ao.quantization.prepare\_qat}
-\end{itemize}
+\texttt{quantize\_dynamic} z biblioteki PyTorch działa wyłącznie na
+warstwach \texttt{nn.Linear}: w czasie wnioskowania wagi są rzutowane z
+FP32 do INT8, a aktywacje pozostają FP32.
+
+Konsekwencją kwantyzowania tylko "heada" do klasyfikacji
+(\texttt{Linear} to \textless0.5\% parametrów modelu, reszta to warstwy
+\texttt{Conv2d}) jest niemal zerowa zmiana rozmiaru pliku.
+
+\subsubsection*{QAT (FX Graph Mode)}
+
+Tryb FX Graph Mode~\cite{pytorch2021fx} śledzi cały graf obliczeniowy
+sieci symbolicznym interpreterem, wstawia operatory
+\textit{FakeQuantize} w każdy węzeł grafu (wejścia, wyjścia, wagi
+\texttt{Conv2d} i \texttt{Linear}) i scala warstwy
+\texttt{Conv2d}+\texttt{BatchNorm}+\texttt{ReLU} w pojedynczy
+operator. Dzięki temu model jest doszkalany z szumem kwantyzacji jako
+regularyzacją, a po wywołaniu \texttt{convert\_fx} \emph{wszystkie}
+operacje zostają zastąpione INT8 - w przeciwieństwie do PTQ dynamicznej,
+która kwantyzuje jedynie \texttt{Linear}.
+
+\input{tables/quantization.tex}
 
 \subsection{Obserwacje}
 
+Jak wynika z Tab. \ref{tab:quantization}, obie metody zachowują
+dokładność na poziomie baseline'u (różnica $<0.5$~pp), jednak różnią się
+drastycznie wpływem na rozmiar i szybkość.
+
+\textbf{PTQ} przynosi marginalną redukcję rozmiaru
+(5.37~MB vs.\ 5.39~MB baseline) - zgodnie z oczekiwaniem, bo
+kwantyzowane są wyłącznie wagi warstwy gęstej \texttt{Linear}, stanowiące
+ułamek procenta parametrów sieci.
+
+\textbf{QAT} kwantyzuje cały model, w tym warstwy \texttt{Conv2d}
+dominujące rozmiar. Uruchamiamy doszkalanie na jedną epokę, a efekty są zaskakująco dobre:
+\begin{itemize}
+  \item rozmiar: $5.39\,\text{MB} \to 1.63\,\text{MB}$ (\textbf{3.3$\times$} kompresja),
+  \item ZIP: $5.03\,\text{MB} \to 1.13\,\text{MB}$ (\textbf{4.5$\times$}),
+  \item czas CPU: $3.15\,\text{ms} \to 1.43\,\text{ms}$ (\textbf{2.2$\times$} szybciej).
+\end{itemize}
+Dokładność ulega minimalnej degradacji: $-0.4$~pp dla danych zaszumionych
+i faktycznie \emph{rośnie} o $+0.2$~pp dla danych czystych a więc szum
+kwantyzacji działa tu jak regularyzacja.
 
 \section{Optymalizacja hiperparametrów}
 
-W końcu przeprowadzamy prostą optymalizację hiperparametrów. Sprawdzamy wpływ augmentacji danych, wyboru optymalizatora, schedulera (przypominamy, że we wcześniejszych rozważaniach przyjęliśmy \texttt{Adam} z lubianym przez nas \texttt{CosineAnnealingWarmRestarts}).
+Przeprowadzamy prostą sekwencyjną optymalizację hiperparametrów: każda grupa
+eksperymentów zmienia jeden parametr przy ustalonych pozostałych.
+Punkt wyjścia to konfiguracja baseline'u (Adam, Cosine Annealing, brak augmentacji,
+dropout~$p=0$). Każdy wariant trenowany jest przez 10 epok z $\eta_0=10^{-4}$.
 
+\subsection{Augmentacja danych}
 
+Zbadaliśmy cztery warianty:
+
+\begin{description}
+  \item[none] Brak augmentacji -- tylko normalizacja.
+  \item[basic] Losowe przycięcie (\texttt{RandomCrop(32, padding=4)})
+    i odbicie poziome (\texttt{RandomHorizontalFlip}).
+  \item[standard] Dodatkowo \texttt{ColorJitter}
+    (jasność/kontrast/nasycenie $\pm0.2$) oraz \texttt{RandomGrayscale}
+    ($p=0.1$).
+  \item[aggressive] Pełna augmentacja: rotacja $\pm15^{\circ}$,
+    perspektywa, silniejszy jitter.
+\end{description}
+
+\input{tables/hyperopt_augmentation.tex}
+
+Jak widać w Tab.~\ref{tab:hyperopt-aug} i na Rys.~\ref{fig:hyperopt-aug},
+augmentacja \emph{basic} i \emph{standard} poprawiają wyniki o
+$+2$--$+2.4$~pp względem braku augmentacji, zarówno dla danych czystych
+jak i zaszumionych. \emph{aggressive} pogarsza wyniki - geometryczne
+deformacje (rotacje, perspektywa) niszczą cechy krytyczne dla klasyfikacji
+przy niskiej rozdzielczości $32\times32$ (np. kontur butelki vs.\ klawiatura).
+Dla dalszych eksperymentów przyjmujemy augmentację \emph{standard}.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=\linewidth]{figures/hyperopt_augmentation.pdf}
+  \caption{Wpływ strategii augmentacji na dokładność testową.}
+  \label{fig:hyperopt-aug}
+\end{figure}
+
+\subsection{Optymalizatory}
+
+Porównano cztery optymalizatory przy augmentacji \emph{standard}:
+
+\input{tables/hyperopt_optimizer.tex}
+
+Najbardziej wybijający się wynik to katastrofalne pogorszenie wyników dla SGD przy danych zaszumionych:
+64\% acc (przy 85\% dla danych czystych).
+SGD bez adaptacji mocno reaguje na szum gradientu wynikający
+z błędnych etykiet - wagi aktualizowane są jednostajnie, co uniemożliwia
+ustabilizowanie się w pobliżu minimum. Optymalizatory Adam (Adam,
+AdamW z $\lambda\in\{10^{-4},10^{-3}\}$) dają identyczne wyniki (85.4\%),
+co sugeruje, że przy zamrożonym backbone weight decay nie odgrywa roli - oczywiście jedyną uczoną warstwą jest
+przekształcenie liniowe na wyjściu, więc nie ma sensu przeciwdziałać tutaj przeuczeniu.
+Przyjmujemy dalej AdamW $\lambda=10^{-4}$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/hyperopt_optimizer.pdf}
+  \caption{Porównanie optymalizatorów. SGD zawodzi przy danych zaszumionych.}
+  \label{fig:hyperopt-opt}
+\end{figure}
+
+\subsection{Harmonogramy LR}
+
+\input{tables/hyperopt_scheduler.tex}
+
+Jak pokazuje Tab.~\ref{tab:hyperopt-sched}, różnice między cosine,
+plateau i step są minimalne ($<0.5$~pp). \texttt{OneCycleLR} daje
+\emph{najlepszy} wynik dla danych czystych (91.1\%), ale jednocześnie
+\emph{gorszy} przy danych zaszumionych (83.3\%). Agresywna faza rozgrzewania
+\textit{superconvergence}~\cite{smith2018superconvergence} destabilizuje
+trening przy błędnych etykietach. \texttt{StepLR} okazuje się najlepszy (ale minimalnie) dla
+danych zaszumionych (85.9\%).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/hyperopt_scheduler.pdf}
+  \caption{Porównanie harmonogramów LR.}
+  \label{fig:hyperopt-sched}
+\end{figure}
+
+\subsection{Najlepszy model (Etap 7)}
+
+\input{tables/hyperopt_best.tex}
+
+Łącząc najtrafniejsze wybory (\emph{standard} aug, AdamW $\lambda=10^{-4}$,
+OneCycleLR, dropout $p=0.1$) uzyskujemy dla danych czystych
+\textbf{91.0\%} acc -- najlepszy wynik spośród wszystkich eksperymentów
+(Tab.~\ref{tab:hyperopt-best}). Dla danych zaszumionych wynik wynosi 83.7\%,
+czyli gorszy od najlepszego wariantu StepLR+dropout=0.5 (85.9\%).
 
 \section{Podsumowanie}
 
-Przedstawiamy zatem zgodnie z rozważaniami model o satysfakcjonujących nas, w kontekście postawionego problemu, parametrach jakościowych, wydajnościowych i rozmiarowych. 
+\subsection{Model finalny}
+
+Model finalny łączy trzy techniki optymalizacji w jednym potoku:
+
+\begin{enumerate}
+  \item \textbf{Przerzedzanie strukturalne (15\%)} - usunięcie 15\%
+        filtrów z każdej warstwy \texttt{Conv2d} wg normy $\ell_1$
+        za pomocą biblioteki \texttt{torch-pruning}. Redukuje liczbę
+        parametrów z $\approx$1.36M do $\approx$989K i rozmiar FP32
+        z 5.39~MB do 3.96~MB, jednocześnie dla zaszumionego środowiska nie spadamy znacząco poniżej $F1 = 0.8$.
+
+  \item \textbf{QAT do INT8} - 20 epok doszkalania z operatorami
+        \textit{FakeQuantize} wstawionymi w cały graf obliczeniowy
+        (Conv2d, BatchNorm, Linear), a następnie konwersja
+        \texttt{convert\_fx} do statycznego INT8.
+        Redukuje rozmiar do $\approx$1.2~MB i przyspiesza wnioskowanie
+        ponad 2-krotnie względem baseline'u.
+
+  \item \textbf{Optymalne hiperparametry} -- na podstawie wyników
+        etapu~7: augmentacja \emph{standard}, AdamW $\lambda=10^{-4}$,
+        harmonogram cosine - w zasadzie tylko augmentacja okazała się robic róznice.
+\end{enumerate}
+
+Tabela~\ref{tab:final-comparison} zestawia model finalny z baseline'em
+i wariantami kwantyzacji. Jak widać, zarówno wymóg rozmiaru modelu poniżej 1.5 MB jak i nałożony reżim czasu inferencji (< 2ms) zostały spełnione,
+przy spadku $F1$ na danych niezaszumionych o zaledwie 1 p.p.. W przypadku założonego, znacznego szumu etykiet nie udało się osiągnąć $F1=0.8$, natomiast uznano $F1=0.75$ za
+akceptowalne.
+
+\input{tables/final_comparison.tex}
+
+\subsection{Wnioski}
+
+\begin{enumerate}
+  \item \textbf{Transfer learning} z MobileNetV2~x0.75 (pretrain CIFAR-100)
+        daje silny punkt startowy: 85.4\% acc na danych zaszumionych przy
+        zamrożonym backbone.
+
+  \item \textbf{Pruning unstructured} nie zmniejsza rozmiaru pliku ani
+        czasu wnioskowania (ze względu na brak obsługi rzadkich danych na GPU); użyteczny
+        wyłącznie przy dedykowanych formatach rzadkich macierzy (co jet nietypowe).
+        Pruning typu \textbf{structured} z \texttt{torch-pruning}
+        usuwa kanały, dając liniowe przyspieszenie i faktyczną kompresję.
+
+  \item \textbf{QAT FX} jest zdecydowanie skuteczniejszy od PTQ:
+        kwantyzuje wszystkie warstwy (Conv2d + Linear), osiągając
+        3.3$\times$ kompresję i 2.2$\times$ przyspieszenie bez
+        straty dokładności.
+
+  \item \textbf{SGD zawodzi} przy silnym szumie etykiet
+        (64.3\% vs.\ 85\% dla Adam) - nie ma mechanizmu tłumienia
+        szumu gradientu za pomocą inercji procesu optymalizacji.
+
+  \item \textbf{OneCycleLR} daje najlepsze wyniki dla czystych danych
+        (91.1\%), lecz destabilizuje trening przy zaszumionych etykietach
+        (83.3\%). \textbf{Cosine} i StepLR są bezpieczniejszym wyborem przy szumie.
+
+  \item \textbf{Model finalny} (struct 15\% + QAT FX + opt.\ hiperpar.)
+        spełnia wymagania platformy docelowej: $\approx$1.2~MB,
+        $\approx$1.4~ms/obraz $>1.5 ms$, $\approx$79\% acc (dane zaszumione).
+\end{enumerate}
 
 
-% Celem etapu jest ustalenie optymalnej konfiguracji uczenia, która
-% \textbf{zwiększa dokładność} modelu i minimalizuje przetrenowanie,
-% jednocześnie zachowując efektywność obliczeniową.
 
-% \subsection{Augmentacja danych}
-
-% Augmentacja danych pozwala sztucznie zwiększyć różnorodność zbioru
-% treningowego, co jest szczególnie ważne przy małych zbiorach danych.
-% Zbadano cztery strategie:
-
-% \begin{description}
-%   \item[none] Brak augmentacji -- tylko normalizacja.
-%   \item[basic] Losowe przycięcie (\texttt{RandomCrop(32, padding=4)})
-%     i losowe odbicie poziome (\texttt{RandomHorizontalFlip}).
-%     Jest to konfiguracja standardowa dla CIFAR.
-%   \item[standard] Dodano \texttt{ColorJitter} (jasność, kontrast,
-%     nasycenie $\pm0.2$) oraz \texttt{RandomGrayscale} ($p=0.1$).
-%   \item[aggressive] Pełna augmentacja: rotacja $\pm15^{\circ}$, perspektywa,
-%     silniejszy jitter.
-% \end{description}
-
-% \textbf{Uwaga}: pełna augmentacja geometryczna (obrót, odbicie) jest
-% uzasadniona dla zdjęć przedmiotów 3D (butelki, puszki) rzucanych do kosza
-% pod różnymi kątami. Nie stosuje się augmentacji właściwej mel-spektrogramom.
-
-% \input{tables/augmentation.tex}
-
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=0.65\linewidth]{figures/augmentation_comparison.pdf}
-%   \caption{Wpływ augmentacji na dokładność. Strategia agresywna pogarsza
-%     wyniki -- zbyt silne przekształcenia zniekształcają cechy istotne
-%     dla klasyfikacji przy małej rozdzielczości $32\times32$.}
-%   \label{fig:augmentation}
-% \end{figure}
-
-% \subsection{Regularyzacja -- Dropout}
-
-% Dropout~\cite{szczuko2022osiosn} losowo zeruje aktywacje z prawdopodobieństwem
-% $p$ podczas uczenia, zapobiegając ko-adaptacji neuronów:
-% \begin{equation}
-%   h' = h \odot \mathbf{m}, \quad \mathbf{m}_i \sim \text{Bernoulli}(1-p)
-% \end{equation}
-
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=0.6\linewidth]{figures/dropout_regularization.pdf}
-%   \caption{Wpływ współczynnika dropout na dokładność klasyfikacji.
-%     Optymalne $p=0.1$; wyższe wartości nadmiernie regularyzują.}
-%   \label{fig:dropout}
-% \end{figure}
-
-% \subsection{Optymalizatory i harmonogramy LR}
-
-% \paragraph{Porównanie optymalizatorów}
-% \begin{itemize}
-%   \item \textbf{AdamW}~\cite{loshchilov2018decoupled} ($\lambda=10^{-4}$)
-%         przewyższa Adam dzięki prawidłowej implementacji weight decay
-%         (niezależnej od adaptacji chwilowych momentów).
-%   \item \textbf{SGD} z Nesterovem osiąga gorsze wyniki przy 10 epokach
-%         (wymaga więcej epok do konwergencji).
-% \end{itemize}
-
-% \paragraph{Porównanie harmonogramów LR}
-% \begin{itemize}
-%   \item \textbf{OneCycleLR}~\cite{smith2018superconvergence} osiąga
-%         najlepszy wynik dzięki agresywnemu wzrostowi LR na początku
-%         (\textit{superconvergence}), co szczególnie pomaga przy małych zbiorach.
-%   \item ReduceLROnPlateau jest bezpieczne, ale wolniejsze w adaptacji.
-%   \item StepLR -- najgorszy: gwałtowne obniżenia LR co 5 epok
-%         zaburzają konwergencję.
-% \end{itemize}
-
-% \input{tables/hyperparams.tex}
-
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=\linewidth]{figures/optimizer_scheduler_comparison.pdf}
-%   \caption{Porównanie optymalizatorów i harmonogramów LR -- Etap~7.}
-%   \label{fig:optimizer-scheduler}
-% \end{figure}
-
-% \subsection{Czas uczenia i wnioskowania}
-
-% Model z optymalizacją uczenia (AdamW + OneCycleLR + standard aug + dropout 0.1)
-% nie zmienia czasu wnioskowania ($\approx$15.8~ms/obraz na CPU) w porównaniu
-% do baseline, ponieważ architektura pozostaje niezmieniona.
-% Czas treningu na epokę jest porównywalny ($\pm$5\%).
-
-% \subsection{Wyniki najlepszego modelu Etap~7}
-
-% Najlepszy model (\texttt{best\_etap7}):
-% \textbf{88.3\%} dokładności (wzrost o $+1.1$~pp vs.\ baseline).
-% Konfiguracja: AdamW ($\lambda=10^{-4}$) + OneCycleLR + augmentacja standardowa
-% + Dropout $p=0.1$ + label smoothing $=0.05$.
-
-% % =============================================================================
-% \section{Porównanie końcowe i wnioski}
-% \label{sec:wnioski}
-
-% \subsection{Zbiorcze zestawienie}
-
-% \input{tables/final_comparison.tex}
-
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=0.8\linewidth]{figures/accuracy_vs_size.pdf}
-%   \caption{Kompromis dokładność--rozmiar modelu dla wszystkich zbadanych
-%     wariantów. Lewy-górny narożnik jest optymalny (mały model, wysoka
-%     dokładność).}
-%   \label{fig:accuracy-vs-size}
-% \end{figure}
-
-% \subsection{Odpowiedź na pytania etapu 7}
-
-% \paragraph{Czy model uproszczony działa szybciej na CPU?}
-% Tak -- lecz \textbf{wyłącznie przy pruning strukturalnym i kwantyzacji}.
-% Pruning niestrukturalny nie przyspiesza CPU (zera nadal są mnożone przez
-% gęste jądra BLAS).
-% Najlepszy wariant (pruning strukturalny 30\% + PTQ INT8) uzyskuje
-% \textbf{$4\times$ przyspieszenie CPU} przy zachowaniu akceptowalnej
-% dokładności ($-3$~pp vs.\ baseline).
-
-% \paragraph{Wpływ augmentacji na dokładność}
-% Augmentacja standardowa ($+0.6$~pp) jest optymalna.
-% Agresywna augmentacja pogarsza wyniki ($-0.5$~pp) przy małej rozdzielczości
-% $32\times32$ -- zbyt duże deformacje geometryczne niszczą cechy
-% krytyczne dla klasyfikacji.
-
-% \paragraph{Dobór regularyzacji}
-% Dropout $p=0.1$ i AdamW weight decay $\lambda=10^{-4}$ są komplementarne
-% i razem dają najlepszy efekt regularyzacji na małym zbiorze.
-% Większy dropout ($p \geq 0.3$) nadmiernie regularyzuje przy zamrożonym
-% backbone.
-
-% \subsection{Wnioski końcowe}
-
-% \begin{enumerate}
-%   \item Transfer learning z MobileNetV2~x0.75 (pretrained CIFAR-100)
-%         zapewnia silny punkt startowy przy 3-klasowym zadaniu z zaszumionymi
-%         etykietami (\textbf{87.2\%} test acc).
-%   \item Optymalizacja hiperparametrów (Etap~7) zwiększa dokładność do
-%         \textbf{88.3\%} bez zmiany architektury.
-%   \item Kwantyzacja PTQ INT8 osiąga \textbf{$4\times$ kompresję i $3\times$
-%         przyspieszenie} przy minimalnej utracie dokładności ($-0.1$~pp).
-%   \item Połączenie pruning strukturalnego 30\% + PTQ daje model o rozmiarze
-%         \textbf{1.67~MB} i czasie wnioskowania \textbf{3.9~ms/obraz} na CPU --
-%         spełnia wymagania platformy docelowej przy dokładności \textbf{85.8\%}.
-%   \item Model zoptymalizowany jest \textbf{5.6$\times$ mniejszy} i działa
-%         \textbf{4$\times$ szybciej} od modelu odniesienia, potwierdzając
-%         praktyczną użyteczność badanych technik optymalizacji.
-% \end{enumerate}
-
-% % =============================================================================
-% \appendix
 
 \section*{Uwagi dot. reprodukcji}
 

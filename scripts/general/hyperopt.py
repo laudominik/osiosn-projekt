@@ -77,7 +77,7 @@ def run_experiment(cfg: dict, noise_tag: str, noise_rate: float, p_dog: float):
         max_epochs      = EPOCHS,
     )
 
-    trainer, model = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
+    trainer, model, _ = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
     metrics = extract_trainer_metrics(trainer)
 
     save_results(exp_id, metrics, config={

@@ -289,6 +289,70 @@ def plot_quantization_comparison(d: dict):
     save_fig("quantization_comparison")
 
 
+def plot_hyperopt_group(rows: list[dict], fig_name: str, title: str):
+    """Grouped bar chart comparing noisy vs clean accuracy for a hyperopt group."""
+    labels, acc_n, acc_c = [], [], []
+    for e in rows:
+        mn = e.get("noisy") or {}
+        mc = e.get("clean") or {}
+        an = mn.get("test_acc")
+        ac = mc.get("test_acc")
+        if an is None and ac is None:
+            continue
+        labels.append(e.get("name", e.get("id", "?")))
+        acc_n.append(an * 100 if an is not None else 0)
+        acc_c.append(ac * 100 if ac is not None else 0)
+
+    if not labels:
+        return
+
+    x = np.arange(len(labels))
+    w = 0.35
+    fig, ax = plt.subplots(figsize=(max(5, len(labels) * 1.6), 4.5))
+    bars_n = ax.bar(x - w / 2, acc_n, w, label="Z szumem",    color=COLORS[0], alpha=0.85)
+    bars_c = ax.bar(x + w / 2, acc_c, w, label="Czyste dane", color=COLORS[1], alpha=0.85)
+
+    for bar in bars_n + bars_c:
+        h = bar.get_height()
+        if h > 0:
+            ax.text(bar.get_x() + bar.get_width() / 2, h + 0.3, f"{h:.1f}%",
+                    ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel("Dokładność testowa [%]")
+    ax.set_title(title)
+    ax.legend(); ax.grid(axis="y", alpha=0.3)
+    ymin = max(0, min(v for v in acc_n + acc_c if v > 0) - 5) if any(v > 0 for v in acc_n + acc_c) else 0
+    ax.set_ylim(ymin, 100)
+    plt.tight_layout()
+    save_fig(fig_name)
+
+
+def plot_hyperopt(d: dict):
+    e7 = d.get("etap7_experiments", {})
+    plot_hyperopt_group(
+        e7.get("augmentation", []),
+        "hyperopt_augmentation",
+        "Wpływ strategii augmentacji danych",
+    )
+    plot_hyperopt_group(
+        e7.get("optimizer", []),
+        "hyperopt_optimizer",
+        "Porównanie optymalizatorów",
+    )
+    plot_hyperopt_group(
+        e7.get("scheduler", []),
+        "hyperopt_scheduler",
+        "Porównanie harmonogramów uczenia",
+    )
+    plot_hyperopt_group(
+        e7.get("dropout", []),
+        "hyperopt_dropout",
+        "Wpływ współczynnika dropout",
+    )
+
+
 if __name__ == "__main__":
     print("Generating plots...")
     d = load_data()
@@ -297,4 +361,5 @@ if __name__ == "__main__":
     plot_pruning_inference_time(d)
     plot_inference_vs_trained_pruning(d)
     plot_quantization_comparison(d)
+    plot_hyperopt(d)
     print(f"\nAll figures written to {FIGURES_DIR}")
