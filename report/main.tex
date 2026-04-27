@@ -51,7 +51,7 @@
 
 \title{%
   \vspace{-1cm}
-  \textbf{Śmieci-net}\\[0.5em]
+  \centering\includegraphics[width=0.4\textwidth]{../logo.png} \\
   \large MobileNetV2 dostosowany do inteligentnego śmietnika na podstawie zbioru danych CIFAR-100\\[0.3em]
 }
 \author{Dominik Lau (188697), Maciej Krzyżanowski (188872)}
@@ -61,7 +61,6 @@
 \begin{document}
 
 \maketitle
-\thispagestyle{empty}
 
 \begin{abstract}
 Projekt dotyczy budowy i optymalizacji klasyfikatora segregacji odpadów na
@@ -163,13 +162,11 @@ Wybrany model to \textbf{MobileNetV2~x0.75}~\cite{sandler2018mobilenetv2}
 wstępnie wytrenowany na CIFAR-100 (implementacja: \texttt{chenyaofo/pytorch-cifar-models}~\cite{chenyaofo2021cifar}).
 
 Architektura MobileNetV2 została zaprojektowana z myślą o urządzeniach
-mobilnych poprzez zastosowanie m.in. \textit{inverted residuals}, \textit{depthwise separable convolutions}.
+mobilnych poprzez zastosowanie m.in. \textit{inverted residuals} czy \textit{depthwise separable convolutions} a więc świetnie nadaje się do naszego
+problemu. Model nie zawiera wcześniej zastosowanych technik upraszczania (pruning,
+destylacja) - optymalizacja zostanie przeprowadzona samodzielnie. Szczegółowe parametry modelu podano w Tab. \ref{tab:model-profile}.
 
-Model nie zawiera wcześniej zastosowanych technik upraszczania (pruning,
-destylacja) - optymalizacja zostanie przeprowadzona samodzielnie.
-
-% \subsubsection*{Profil modelu}
-% \input{tables/model_profile.tex}
+\input{tables/model_profile.tex}
 
 \subsection{Porównanie z innymi zbiorami danych}
 
@@ -211,7 +208,7 @@ Losowa zmiana etykiety z prawdopodobieństwem:
 \paragraph{N2. Szum gaussowski na pikselach}
 Do każdego obrazu podczas ładowania dodawany jest szum:
 \begin{equation}
-  x' = x + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma^2 \mathbf{I}), \quad \sigma=0.01
+  x' = x + \epsilon, \quad \epsilon \sim \mathcal{N}(0, 0.01^2 \mathbf{I})
 \end{equation}
 
 \paragraph{N3. Zamiana obrazka na zdjęcie psa}
@@ -238,14 +235,11 @@ Musimy zaznaczyć, że uczyć oraz porównywać efekty będziemy zarówno z zasz
 \label{sec:etap4}
 
 \subsection{Trening}
-
 Finetuning modelu polegać będzie na:
 \begin{enumerate}
-  \item \textbf{Zamrożeniu} wszystkich warstw cech
-        MobileNetV2 - wagi backbone nie są aktualizowane.
-  \item \textbf{Zastąpieniu} ostatniej warstwy liniowej
-        (1280-neuronowej) warstwą o 3 wyjściach.
-  \item \textbf{Trenowaniu} nowej warstwy dokonującej klasyfikacji do 3 klas przez 10 epok.
+  \item \textbf{Zamrożeniu} wszystkich warstw cech MobileNetV2 - wagi backbone nie są aktualizowane.
+  \item \textbf{Zastąpieniu} ostatniej warstwy liniowej (1280-neuronowej) warstwą o 3 wyjściach.
+  \item \textbf{Trenowaniu} nowej warstwy dokonującej klasyfikacji do 3 klas przez 50 epok.
 \end{enumerate}
 
 W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
@@ -253,18 +247,16 @@ W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
 \subsubsection*{Szczegóły}
 \begin{itemize}
   \item Loss: \textbf{CrossEntropyLoss}
-  \item Optimizer: \textbf{Adam}, lr=$10^{-4}$
+  \item Optimizer: \textbf{Adam}, lr=$10^{-5}$
   \item LR Scheduler: \textbf{CosineAnnealingWarmRestarts}
         ($T_0=30$, $\eta_{\min}=10^{-6}$)
   \item Gradient clipping: norm $\leq 0.5$
   \item Rozmiar minibatchy: 64 próbki
 \end{itemize}
 
-\subsection{Wyniki}
-
 \input{tables/baseline.tex}
 
-\begin{figure}[H]
+\begin{figure}[h]
   \centering
   \includegraphics[width=\linewidth]{figures/training_curves_baseline.pdf}
   \caption{Krzywe uczenia baseline'u (10 epok). Widoczna są różnice między sytuacją, w której
@@ -287,7 +279,7 @@ model jest w stanie nauczyć się użytecznych cech~\cite{szczuko2022osiosn}. W 
 \section{Pruning}
 \label{sec:etap5}
 
-\subsection{Stosowane kryteria}
+\subsection{Metoda}
 
 
 Zgodnie z \textit{Lottery Ticket Hypothesis} \cite{frankle2019lottery},
@@ -312,33 +304,63 @@ Przetestowano kilka strategii przerzedzania i wszystkie opisano:
   \item Strategia przerzedzania niestrukturalnego w kilku krokach podczas finetuningu (UNSTRUCTURED SCHEDULED).
   \item Strategia przerzedzania strukturalnego jednokrotnego na początku treningu a następnie finetuning (STRUCTURED ONESHOT).
   \item Strategia przerzedzania strukturalnego w kilku krokach podczas finetuningu (STRUCTURED SCHEDULED).
+  \item Przerzedzanie strukturalne podczas inferencji (INFERENCE)
+  \item Przerzedzanie czasowe (TEMPORAL).
 \end{itemize}
 
 Do implementacji harmonogramu (.. SCHEDULED) wykorzystujemy następującą technikę liczenia odsetka wag, jakie mają zostać
 w kolejnej epoce usunięte.
 
+\begin{equation}
+  \text{Prune}_{t+1} = \frac{s_{t+1} - s_{t}}{1 - s_{t}} 
+\end{equation}
+gdzie
+\begin{equation*}
+  s_t = \text{Target} (1 - (1- \frac{t}{T})^3)
+\end{equation*}
+W ten sposób w każdej z $T$ epok pruningu powinniśmy dostawać taki odsetek, aby na koniec przerzedzeniu
+uległo dokładnie Target wag. Ze względu na stosowanie harmonogramu nie implementujemy dodatkowo RigL\cite{evci2020rigging}.
 
-% \subsection{Wyniki przerzedzania}
 
-% \input{tables/pruning.tex}
+\subsection{Obserwacje}
 
-% \begin{figure}[H]
-%   \centering
-%   \begin{subfigure}[b]{0.53\linewidth}
-%     \includegraphics[width=\linewidth]{figures/pruning_accuracy_tradeoff.pdf}
-%     \caption{Dokładność vs.\ rzadkość.}
-%     \label{fig:pruning-tradeoff}
-%   \end{subfigure}
-%   \hfill
-%   \begin{subfigure}[b]{0.44\linewidth}
-%     \includegraphics[width=\linewidth]{figures/inference_time_comparison.pdf}
-%     \caption{Czas wnioskowania CPU.}
-%     \label{fig:inference-time}
-%   \end{subfigure}
-%   \caption{Wyniki przerzedzania modelu. Pruning strukturalne daje rzeczywiste
-%     przyspieszenie wnioskowania dzięki mniejszej liczbie kanałów.}
-%   \label{fig:pruning}
-% \end{figure}
+Sprawdzamy pierw przerzedzanie podczas inferencji (t.j. bez dodatkowego doszkalania). Z Tab. \ref{tab:pruning_inference_time} wynika, że ten sposób bardzo gwałtownie obniża wyniki modelu, ponieważ usunięcie zaledwie $10\%$ filtrów obniża wyniki o ponad 10 p.p..
+
+W przypadku pruningu nieustrukturyzowanego (UNSTRUCTURED ..) wyniki przedstawiono w Tab. \ref{tab:pruning_unstructured}; z racji, że sieci trzymane są w zwykłym \texttt{BLAS}-owym formacie, nie wpływa to
+w żaden sposób na czas inferencji ani na rozmiar sieci. Tego typu pruning wpływa naturalnie na możliwy stopień kompresji (natomiast nie jest to 
+coś, czego koniecznie potrzebujemy) - długie ciągi zer obniżają entropię pliku co czyni je łatwiejszym do zakodowania RLE czy ANS.
+Wyniki te są oczywiste i zgodne z treścią wykładu. Zwrócimy natomiast uwagę na mniej trywialny rezultat a więc brak różnicy między strategiami pruningu ONESH(OT) i SCHED(ULED).
+Twierdzimy, że w przypadku tego zbioru danych fine-tuning jest w stanie równie dobrze działać przy stopniowym jak i nagłym ucięciu wag, ponieważ rozmiar sieci
+pozostaje i tak stosunkowo duży jak na prostotę zadania oraz dokonujemy go jeszcze przez wiele epok (łącznie 50 epok fine-tuningu).
+
+Aby jednak obserwować korzyści z przerzedzania zastosowaliśmy pruning ustrukturyzowany (STRUCTURED ..), 
+którego rezultaty przedstawiliśmy w Tab. \ref{tab:pruning_structured}.
+W przypadku tego algorytmu usuwane są całe filtry a więc usuwamy całe macierze gęste, co ma realny wpływ zarówno na spadek czasu inferencji (z 3.26 ms do 2.68 dla STRUCTURED SCHEDULED ze sparsity=50\%, poza tym charakterystyka jest mniej-więcej liniowa co widać na Rys. \ref{fig:pruning-inference}) jak i rozmiaru modelu (z 4.40 MB do 1.52 MB pliku PTH). W tym przypadku
+rozmiary ZIPów nie odbiegają znacząco od rozmiarów plików PTH. Udaje nam się utrzymać akceptowalny poziom $F1 > 0.8$ usuwając do 30 \% wszystkich filtrów (dla danych niezaszumionych, w przypadku szumu usunięcie ok. 20\% daje akceptowalne wyniki).
+
+Na Rys. \ref{fig:pruning-tradeoff} widać, że rzadkość nieustrukturyzowana jest rażąco mniej agresywnym działaniem niż drugi jej typ (unstrukturyzowana), poprzez usuwanie filtrów znacznie szybciej obserwujemy spadek $F1$ (TODO \% structured odpowiada TODO \% unstructured). Warto również skupić się na wpływie szumu na wyniki. W przypadku przerzedzenia nieustrukturyzowanego widzimy znacząco mniejszą rozbieżność w wynikach ilościowych między scenariuszem, w któm do danych treningowych dodajemy szum i gdy go nie dodajemy. Z drugiej strony, dla STRUCTURAL obserwujemy fundamentalną różnicę, co sugeruje, że drugi typ pruningu czyni model bardziej podatnym na niedoskonałości w etykietach i próbkach.
+
+\input{tables/pruning_inference_time.tex}
+\input{tables/pruning_unstructured.tex}
+\input{tables/pruning_structured.tex}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[b]{1.0\linewidth}
+    \includegraphics[width=\linewidth]{figures/pruning_accuracy_tradeoff.pdf}
+    \caption{Dokładność vs.\ rzadkość.}
+    \label{fig:pruning-tradeoff}
+  \end{subfigure}
+  \begin{subfigure}[b]{1.0\linewidth}
+    \includegraphics[width=\linewidth]{figures/pruning_inference_time_tradeoff.pdf}
+    \caption{Czas inferencji vs.\ rzadkość.}
+    \label{fig:pruning-inference}
+  \end{subfigure}
+  \hfill
+  \caption{Wyniki przerzedzania modelu. Pruning strukturalne daje rzeczywiste
+    przyspieszenie wnioskowania dzięki mniejszej liczbie kanałów.}
+  \label{fig:pruning}
+\end{figure}
 
 % \subsection{Analiza wyników}
 
@@ -363,83 +385,34 @@ w kolejnej epoce usunięte.
 % zoptymalizowane dla rzadkich macierzy -- przyspieszenie z unstructured
 % pruning wymaga dedykowanych jąder (np.\ cuSPARSE, biblioteka SpMM).
 
-% \subsection{RigL -- ocena możliwości zastosowania}
+\section{Kwantyzacja}
 
-% Algorytm \textbf{RigL}~\cite{evci2020rigging} (\textit{Rigging the Lottery})
-% realizuje przerzedzanie przez dynamiczną aktualizację topologii sieci podczas
-% treningu, zachowując stały rozmiar modelu przy znacznie lepszej dokładności.
-% W ramach projektu zbadano możliwość jego zastosowania:
-% \begin{itemize}
-%   \item Oficjalna implementacja JAX (brak bezpośredniego wsparcia PyTorch),
-%   \item Porty PyTorch są nieoficjalne i niestabilne API,
-%   \item Mały zbiór danych ($\sim$5~600 próbek) ogranicza korzyści RigL
-%         (algorytm zaprojektowany dla ImageNet-scale training),
-%   \item \textbf{Decyzja}: zastosowano iteracyjne przerzedzanie z
-%         \texttt{ModelPruning}, które jest stabilną i dobrze udokumentowaną
-%         alternatywą.
-% \end{itemize}
+\subsection{Metoda}
 
-% % =============================================================================
-% \section{Dodatkowe optymalizacje modelu (Etap~6)}
-% \label{sec:etap6}
+Kwantyzacja polega na reprezentacji parametrów modelu z mniejszą precyzją bitową co przy przejściu na 
+$K$ razy mniej bitów (np. z FP32 na INT8 $K=4$) zmniejsza rozmiar modelu $K$ krotnie.
 
-% \subsection{Kwantyzacja wag}
+\subsubsection*{Strategie kwantyzacji}
 
-% Kwantyzacja polega na reprezentacji parametrów modelu z mniejszą precyzją
-% bitową.
-% Przejście z FP32 do INT8 redukuje rozmiar modelu $4\times$ i przyspiesza
-% wnioskowanie na CPU dzięki szybszej arytmetyce całkowitoliczbowej.
+Stosujemy dwie strategie kwantyzacji.
+\begin{itemize}
+  \item Post-Training Quantization (PTQ) - 
+  \item Quantization-Aware Training (QAT) - w tym przypadku stosujemy \texttt{torch.ao.quantization.prepare\_qat}
+\end{itemize}
 
-% \subsubsection*{Post-Training Quantization -- PTQ dynamiczna (INT8)}
+\subsection{Obserwacje}
 
-% Kwantyzacja po treningu bez dodatkowego zbioru kalibracyjnego:
-% \begin{lstlisting}[caption={Zastosowanie PTQ dynamicznej INT8 -- \texttt{train\_quantized\_ptq.py}.}]
-% model_q = torch.quantization.quantize_dynamic(
-%     model,
-%     {torch.nn.Linear, torch.nn.Conv2d},
-%     dtype=torch.qint8,
-% )
-% \end{lstlisting}
-% Zalety: zero kosztu dodatkowego treningu; wady: mogą pojawiać się małe
-% straty dokładności w porównaniu do QAT.
 
-% \subsubsection*{Quantization-Aware Training -- QAT (INT8)}
+\section{Optymalizacja hiperparametrów}
 
-% QAT symuluje kwantyzację w trakcie treningu przy użyciu
-% \textit{fake quantization operators} (operatorów symulowanych):
-% \begin{equation}
-%   x_q = \text{round}\!\left(\frac{x}{\Delta}\right) \cdot \Delta, \quad
-%   \Delta = \frac{x_{\max} - x_{\min}}{2^b - 1}
-% \end{equation}
-% gdzie $b=8$ bitów.
-% Backpropagation używa operatora \textit{straight-through estimator} (STE)
-% dla gradientów przez operację zaokrąglenia.
+W końcu przeprowadzamy prostą optymalizację hiperparametrów. Sprawdzamy wpływ augmentacji danych, wyboru optymalizatora, schedulera (przypominamy, że we wcześniejszych rozważaniach przyjęliśmy \texttt{Adam} z lubianym przez nas \texttt{CosineAnnealingWarmRestarts}).
 
-% \subsection{Wyniki kwantyzacji}
 
-% \input{tables/quantization.tex}
 
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=0.75\linewidth]{figures/model_size_comparison.pdf}
-%   \caption{Porównanie rozmiarów modelu przed i po optymalizacji.
-%     Kwantyzacja INT8 redukuje rozmiar $4\times$;
-%     połączenie z pruning strukturalnym 50\% daje $\approx8\times$ kompresję.}
-%   \label{fig:model-size}
-% \end{figure}
+\section{Podsumowanie}
 
-% \subsection{Komentarz -- współdzielenie wag filtrów (Kernel sharing)}
+Przedstawiamy zatem zgodnie z rozważaniami model o satysfakcjonujących nas, w kontekście postawionego problemu, parametrach jakościowych, wydajnościowych i rozmiarowych. 
 
-% W modelu wykorzystane są warstwy splotowe.
-% Potencjalne korzyści z współdzielenia wag (\textit{kernel sharing})
-% byłyby ograniczone ze względu na małą liczbę filtrów w modelu
-% x0.75 (zamrożonym -- head jest wyłącznie liniowy).
-% Redukcja parametrów głowicy przez współdzielenie nie jest uzasadniona
-% przy zaledwie 3 klasach wyjściowych.
-
-% % =============================================================================
-% \section{Optymalizacja hiperparametrów uczenia (Etap~7)}
-% \label{sec:etap7}
 
 % Celem etapu jest ustalenie optymalnej konfiguracji uczenia, która
 % \textbf{zwiększa dokładność} modelu i minimalizuje przetrenowanie,
@@ -600,17 +573,10 @@ w kolejnej epoce usunięte.
 \section*{Uwagi dot. reprodukcji}
 
 Skorzystano z managera pakietów \texttt{uv}, który tworzy pliki typu \texttt{lock} umożliwiające dokładne odtworzenie środowiska, a więc
-podawanie tutaj dokładnych wersji pakietów jest zbędne. Wszystko jest dostępne w udostępnionym repozytorium pod adresem \url{gry.pl}.
+podawanie tutaj dokładnych wersji pakietów jest zbędne. Wszystko jest dostępne w udostępnionym repozytorium pod adresem \url{github.com/laudominik/osiosn-projekt}.
 Aby zreprodukować wyniki należy wykonać polecenie \texttt{./scripts/run\_all\_experiments.sh
 }. Wymagane pakiety oraz dane pobrane zostaną automatycznie.
 
-
-% \section{Generowanie tabel i wykresów}
-
-% \begin{lstlisting}[caption={Generowanie assetów do raportu.}]
-% uv run python scripts/generate_tables.py  # -> report/tables/*.tex
-% uv run python scripts/generate_plots.py   # -> report/figures/*.pdf
-% \end{lstlisting}
 
 % =============================================================================
 \bibliographystyle{plain}

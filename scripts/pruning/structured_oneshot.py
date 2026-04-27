@@ -1,12 +1,13 @@
 import sys
 import glob
-from pytorch_lightning.callbacks import ModelPruning
+import torch
+import torch_pruning as tp
 
 from osiosn import WasteSortingModule, WasteSortingDataModule, train, profile
 from osiosn import save_results, extract_trainer_metrics
 
 SPARSITY_LEVELS = [0.10, 0.15, 0.20, 0.30, 0.50]
-EPOCHS = 50
+EPOCHS = 10
 BATCH  = 64
 SEED   = 42
 
@@ -15,32 +16,38 @@ NOISE_VARIANTS = [
     ("clean", 0.0, 0.0),
 ]
 
+# Fixed CIFAR-100 input shape
+EXAMPLE_INPUTS = torch.randn(1, 3, 32, 32)
+
 if len(sys.argv) > 1:
     SPARSITY_LEVELS = [float(sys.argv[1])]
 
 
-def make_structured_pruning_cb(target_sparsity: float):
-    class SafeStructuredPruning(ModelPruning):
-        def filter_parameters_to_prune(self, parameters_to_prune=None):
-            params = super().filter_parameters_to_prune(parameters_to_prune)
-            # Pomijamy BatchNorm / LayerNorm (tensory wag 1-wymiarowe)
-            return [
-                (module, name) for module, name in params
-                if getattr(module, name).dim() > 1
-            ]
+def prune_channels(inner_model: torch.nn.Module, pruning_ratio: float) -> None:
+    """
+    Physically remove channels/filters using torch-pruning.
+    Must unfreeze all params first so the dependency graph can trace grad_fn.
+    """
+    for p in inner_model.parameters():
+        p.requires_grad_(True)
 
-    return SafeStructuredPruning(
-        pruning_fn="ln_structured",
-        parameter_names=["weight"],
-        use_global_unstructured=False,
-        # Kluczowa zmiana: tnie mocno RAZ w epoce 0, potem tylko doucza (0.0)
-        amount=lambda epoch: target_sparsity if epoch == 0 else 0.0,
-        make_pruning_permanent=True,
-        verbose=1,
-        pruning_dim=0,
-        pruning_norm=1,
-        prune_on_train_epoch_end=True,
+    # Ignore the output Linear (must keep 3 output classes)
+    last_linear = None
+    for m in inner_model.modules():
+        if isinstance(m, torch.nn.Linear):
+            last_linear = m
+
+    imp = tp.importance.MagnitudeImportance(p=1)
+    pruner = tp.pruner.MagnitudePruner(
+        inner_model,
+        EXAMPLE_INPUTS,
+        importance=imp,
+        global_pruning=False,
+        pruning_ratio=pruning_ratio,
+        iterative_steps=1,
+        ignored_layers=[last_linear],
     )
+    pruner.step()
 
 
 for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
@@ -48,38 +55,41 @@ for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
     if not ckpts:
         ckpts = sorted(glob.glob("checkpoints/baseline_waste*.ckpt"))
     if not ckpts:
-        print(f"[{noise_tag}] No baseline checkpoint found – run train_baseline.py first. Skipping.")
+        print(f"[{noise_tag}] Brak checkpointu baseline – run train_baseline.py first. Skipping.")
         continue
     baseline_ckpt = ckpts[-1]
     print(f"\n[{noise_tag}] Loading baseline from: {baseline_ckpt}")
 
     for sparsity in SPARSITY_LEVELS:
-        exp_id = f"prune_struct_o_{int(sparsity*100):02d}_{noise_tag}"
+        exp_id = f"prune_struct_o_{int(sparsity * 100):02d}_{noise_tag}"
         print(f"\n{'='*60}\nRunning {exp_id}  (sparsity={sparsity:.0%})\n{'='*60}")
 
-        dm    = WasteSortingDataModule(batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
-                                       augmentation="basic", seed=SEED)
-        model = WasteSortingModule.load_from_checkpoint(baseline_ckpt)
+        model = WasteSortingModule.load_from_checkpoint(baseline_ckpt, lr=1e-4)
+        model.model.cpu().eval()
 
-        # Odbieramy history, żeby generatory wykresów z LaTeX-a działały poprawnie!
-        trainer, model, history = train(model, dm, ckpt_prefix=exp_id,
-                                        max_epochs=EPOCHS,
-                                        extra_callbacks=[make_structured_pruning_cb(sparsity)])
+        before_params = sum(p.numel() for p in model.model.parameters())
+        prune_channels(model.model, sparsity)
+        after_params  = sum(p.numel() for p in model.model.parameters())
+        print(f"  Params: {before_params:,} → {after_params:,}  "
+              f"({after_params / before_params * 100:.1f}% remaining)")
+
+        # All params already unfrozen by prune_channels – fine-tune everything
+        dm = WasteSortingDataModule(
+            batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
+            augmentation="basic", seed=SEED
+        )
+        trainer, model, history = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
 
         metrics = extract_trainer_metrics(trainer)
         metrics["sparsity_target"] = sparsity
         metrics["training_history"] = history
 
-        # Profilowanie - to tutaj zobaczymy zyski w czasie wnioskowania CPU!
         dm_prof = WasteSortingDataModule(batch_size=1, seed=SEED)
-       
         prof = profile(model, dm_prof)
         metrics.update(prof)
 
-
-
         save_results(exp_id, metrics, config={
             "epochs": EPOCHS, "batch_size": BATCH, "sparsity": sparsity,
-            "pruning": "ln_structured_oneshot", "dim": 0, "norm": 1,
+            "pruning": "torch_pruning_magnitude_structured_oneshot", "global": True,
             "noise_rate": noise_rate, "p_dog": p_dog,
         })

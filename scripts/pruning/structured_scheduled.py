@@ -1,13 +1,14 @@
 import sys
 import glob
-from pytorch_lightning.callbacks import ModelPruning
+import torch
+import torch_pruning as tp
 
 from osiosn import WasteSortingModule, WasteSortingDataModule, train, profile
 from osiosn import save_results, extract_trainer_metrics
 
 SPARSITY_LEVELS = [0.10, 0.15, 0.20, 0.30, 0.50]
-EPOCHS = 50
-PRUNE_EPOCHS = 30 
+ITERATIVE_STEPS = 5
+EPOCHS = 10
 BATCH  = 64
 SEED   = 42
 
@@ -16,51 +17,35 @@ NOISE_VARIANTS = [
     ("clean", 0.0, 0.0),
 ]
 
+EXAMPLE_INPUTS = torch.randn(1, 3, 32, 32)
+
 if len(sys.argv) > 1:
     SPARSITY_LEVELS = [float(sys.argv[1])]
 
 
-def make_gradual_pruning_schedule(target_sparsity: float, prune_epochs: int):
-    if target_sparsity >= 1.0:
-        target_sparsity = 0.9999
+def prune_channels_iterative(inner_model: torch.nn.Module,
+                              pruning_ratio: float,
+                              iterative_steps: int) -> None:
+    for p in inner_model.parameters():
+        p.requires_grad_(True)
 
-    def schedule(epoch):
-        if epoch >= prune_epochs:
-            return 0.0
-        
-        s_prev = target_sparsity * (1.0 - (1.0 - (epoch) / prune_epochs)**3)
-        s_curr = target_sparsity * (1.0 - (1.0 - (epoch + 1) / prune_epochs)**3)
-        
-        if s_prev >= 1.0:
-            return 0.0
-            
-        amount_to_prune = (s_curr - s_prev) / (1.0 - s_prev)
-        
-        return amount_to_prune
+    last_linear = None
+    for m in inner_model.modules():
+        if isinstance(m, torch.nn.Linear):
+            last_linear = m
 
-    return schedule
-
-
-def make_structured_pruning_cb(target_sparsity: float, prune_epochs: int):
-    class SafeStructuredPruning(ModelPruning):
-        def filter_parameters_to_prune(self, parameters_to_prune=None):
-            params = super().filter_parameters_to_prune(parameters_to_prune)
-            return [
-                (module, name) for module, name in params
-                if getattr(module, name).dim() > 1
-            ]
-
-    return SafeStructuredPruning(
-        pruning_fn="ln_structured",
-        parameter_names=["weight"],
-        use_global_unstructured=False,
-        amount=make_gradual_pruning_schedule(target_sparsity, prune_epochs),
-        make_pruning_permanent=True,
-        verbose=1,
-        pruning_dim=0,
-        pruning_norm=1,
-        prune_on_train_epoch_end=True,
+    imp = tp.importance.MagnitudeImportance(p=1)
+    pruner = tp.pruner.MagnitudePruner(
+        inner_model,
+        EXAMPLE_INPUTS,
+        importance=imp,
+        global_pruning=False,
+        pruning_ratio=pruning_ratio,
+        iterative_steps=iterative_steps,
+        ignored_layers=[last_linear],
     )
+    for _ in range(iterative_steps):
+        pruner.step()
 
 
 for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
@@ -68,22 +53,30 @@ for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
     if not ckpts:
         ckpts = sorted(glob.glob("checkpoints/baseline_waste*.ckpt"))
     if not ckpts:
-        print(f"[{noise_tag}] No baseline checkpoint found – run train_baseline.py first. Skipping.")
+        print(f"[{noise_tag}] Brak checkpointu baseline – run train_baseline.py first. Skipping.")
         continue
     baseline_ckpt = ckpts[-1]
     print(f"\n[{noise_tag}] Loading baseline from: {baseline_ckpt}")
 
     for sparsity in SPARSITY_LEVELS:
-        exp_id = f"prune_struct_s_{int(sparsity*100):02d}_{noise_tag}"
-        print(f"\n{'='*60}\nRunning {exp_id}  (sparsity={sparsity:.0%})\n{'='*60}")
+        exp_id = f"prune_struct_s_{int(sparsity * 100):02d}_{noise_tag}"
+        print(f"\n{'='*60}\nRunning {exp_id}  (sparsity={sparsity:.0%}, "
+              f"steps={ITERATIVE_STEPS})\n{'='*60}")
 
-        dm    = WasteSortingDataModule(batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
-                                       augmentation="basic", seed=SEED)
-        model = WasteSortingModule.load_from_checkpoint(baseline_ckpt)
+        model = WasteSortingModule.load_from_checkpoint(baseline_ckpt, lr=1e-4)
+        model.model.cpu().eval()
 
-        trainer, model, history = train(model, dm, ckpt_prefix=exp_id,
-                                        max_epochs=EPOCHS,
-                                        extra_callbacks=[make_structured_pruning_cb(sparsity, PRUNE_EPOCHS)])
+        before_params = sum(p.numel() for p in model.model.parameters())
+        prune_channels_iterative(model.model, sparsity, ITERATIVE_STEPS)
+        after_params  = sum(p.numel() for p in model.model.parameters())
+        print(f"  Params: {before_params:,} → {after_params:,}  "
+              f"({after_params / before_params * 100:.1f}% remaining)")
+
+        dm = WasteSortingDataModule(
+            batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
+            augmentation="basic", seed=SEED
+        )
+        trainer, model, history = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
 
         metrics = extract_trainer_metrics(trainer)
         metrics["sparsity_target"] = sparsity
@@ -94,7 +87,8 @@ for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
         metrics.update(prof)
 
         save_results(exp_id, metrics, config={
-            "epochs": EPOCHS, "prune_epochs": PRUNE_EPOCHS, "batch_size": BATCH, "sparsity": sparsity,
-            "pruning": "ln_structured_gradual", "dim": 0, "norm": 1,
+            "epochs": EPOCHS, "batch_size": BATCH, "sparsity": sparsity,
+            "iterative_steps": ITERATIVE_STEPS,
+            "pruning": "torch_pruning_magnitude_structured_iterative", "global": True,
             "noise_rate": noise_rate, "p_dog": p_dog,
         })

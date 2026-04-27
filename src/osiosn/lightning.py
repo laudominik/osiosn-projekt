@@ -17,11 +17,11 @@ class WasteSortingModule(pl.LightningModule):
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
         dropout_rate: float = 0.0,
-        optimizer_type: str = "adam",        # "adam" | "adamw" | "sgd"
-        scheduler_type: str = "cosine",      # "cosine" | "plateau" | "onecycle" | "step"
+        optimizer_type: str = "adam",
+        scheduler_type: str = "cosine",
         label_smoothing: float = 0.0,
-        unfreeze_n_blocks: int = 0,          # number of MobileNetV2 feature blocks to unfreeze
-        steps_per_epoch: int = None,         # required when scheduler_type="onecycle"
+        unfreeze_n_blocks: int = 0,
+        steps_per_epoch: int = None,
         max_epochs: int = 10,
     ):
         super().__init__()

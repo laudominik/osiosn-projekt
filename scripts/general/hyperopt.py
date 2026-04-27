@@ -1,21 +1,3 @@
-"""
-Etap 7 – Optymalizacja hiperparametrów uczenia.
-
-Eksperymenty z:
-  1. Strategiami augmentacji danych: none / basic / standard / aggressive
-  2. Optymalizatorami: Adam, AdamW, SGD
-  3. Harmonogramami LR: CosineWarmRestarts, ReduceLROnPlateau, OneCycleLR, StepLR
-  4. Regularyzacją Dropout: p ∈ {0.0, 0.1, 0.3, 0.5}
-
-Każdy eksperyment zapisuje wyniki do katalogu results/.
-Można uruchomić wybrany podzbiór przekazując nazwę grupy jako argument CLI:
-    python train_hyperopt.py augmentation
-    python train_hyperopt.py optimizer
-    python train_hyperopt.py scheduler
-    python train_hyperopt.py dropout
-    python train_hyperopt.py best
-    python train_hyperopt.py all
-"""
 import sys
 import math
 from osiosn import WasteSortingModule, WasteSortingDataModule, train
@@ -25,7 +7,6 @@ EPOCHS = 10
 BATCH  = 64
 SEED   = 42
 
-# ── experiment groups ─────────────────────────────────────────────────────────
 
 AUGMENTATION_EXPERIMENTS = [
     dict(id="aug_none",       augmentation="none",       optimizer_type="adamw", weight_decay=1e-4, scheduler_type="cosine", dropout_rate=0.0),
@@ -67,8 +48,6 @@ ALL_GROUPS = {
     "dropout":      DROPOUT_EXPERIMENTS,
     "best":         BEST_EXPERIMENT,
 }
-
-# ── runner ────────────────────────────────────────────────────────────────────
 
 NOISE_VARIANTS = [
     ("noisy", 0.5, 0.1),

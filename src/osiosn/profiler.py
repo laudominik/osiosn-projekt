@@ -54,7 +54,10 @@ def profile(model_module, datamodule) -> dict:
     x_cpu, _ = batch
 
     def _measure(device, x):
-        m = deepcopy(model).to(device).eval()
+        try:
+            m = deepcopy(model).to(device).eval()
+        except (RuntimeError, AssertionError, NotImplementedError):
+            return None
         xi = x.to(device)
         with torch.no_grad():
             for _ in range(20):          # warm-up
@@ -68,14 +71,21 @@ def profile(model_module, datamodule) -> dict:
     # CPU inference
     cpu_ms = _measure(torch.device("cpu"), x_cpu)
     results["inference_cpu_ms"] = cpu_ms
-    print(f"  Inference CPU  : {cpu_ms:.2f} ms/sample")
+    if cpu_ms is not None:
+        print(f"  Inference CPU  : {cpu_ms:.2f} ms/sample")
+    else:
+        print("  Inference CPU  : N/A (error during measurement)")
 
-    # GPU inference (optional)
+    # GPU inference (optional; skipped for quantized models which are CPU-only)
     accel = _best_device()
     if accel is not None and str(accel) != "cpu":
         gpu_ms = _measure(accel, x_cpu)
-        results["inference_gpu_ms"] = gpu_ms
-        print(f"  Inference {str(accel).upper():<4} : {gpu_ms:.2f} ms/sample")
+        if gpu_ms is not None:
+            results["inference_gpu_ms"] = gpu_ms
+            print(f"  Inference {str(accel).upper():<4} : {gpu_ms:.2f} ms/sample")
+        else:
+            results["inference_gpu_ms"] = None
+            print(f"  Inference {str(accel).upper():<4} : N/A (quantized model is CPU-only)")
     else:
         results["inference_gpu_ms"] = None
         print("  Inference GPU  : N/A (no CUDA/MPS)")
