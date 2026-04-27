@@ -13,25 +13,25 @@ echo "  OSiOSN Experiment Pipeline"
 echo "========================================"
 
 # Etap 4 – baseline
-echo -e "\n[1/6] Etap 4 – Baseline"
+echo -e "\n[1/6] Etap 4 - Baseline"
 uv run python scripts/train_baseline.py
 
 # Etap 5 – pruning
-echo -e "\n[2/6] Etap 5 – Unstructured pruning"
+echo -e "\n[2/6] Etap 5 - Unstructured pruning"
 uv run python scripts/train_pruning_unstructured.py
 
-echo -e "\n[3/6] Etap 5 – Structured pruning"
+echo -e "\n[3/6] Etap 5 - Structured pruning"
 uv run python scripts/train_pruning_structured.py
 
 # Etap 6 – quantization
-echo -e "\n[4/6] Etap 6 – Post-training quantization"
+echo -e "\n[4/6] Etap 6 - Post-training quantization"
 uv run python scripts/train_quantized_ptq.py
 
-echo -e "\n[4b/6] Etap 6 – Pruning + QAT"
+echo -e "\n[4b/6] Etap 6 - Pruning + QAT"
 uv run python scripts/train_pruning_and_quant.py
 
 # Etap 7 – hyperparameter search
-echo -e "\n[5/6] Etap 7 – Hyperparameter experiments"
+echo -e "\n[5/6] Etap 7 - Hyperparameter experiments"
 uv run python scripts/train_etap7.py all
 
 # Generate report assets

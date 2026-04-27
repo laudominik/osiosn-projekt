@@ -8,15 +8,13 @@ import random
 CIFAR100_MEAN = (0.5071, 0.4865, 0.4409)
 CIFAR100_STD  = (0.2673, 0.2564, 0.2762)
 
-# CIFAR-100 class index → waste category
 CLASS_MAPPING = {
-    9: 0, 10: 0, 16: 0, 28: 0, 61: 0,   # bottle, bowl, can, cup, plate → recyclable
-    0: 1, 51: 1, 53: 1, 57: 1, 83: 1,   # apple, mushroom, orange, pear, sweet_pepper → bio
-    39: 2, 22: 2, 86: 2, 87: 2,          # keyboard, clock, telephone, television → electrical
+    9: 0, 10: 0, 16: 0, 28: 0, 61: 0,   # bottle, bowl, can, cup, plate -> recyclable
+    0: 1, 51: 1, 53: 1, 57: 1, 83: 1,   # apple, mushroom, orange, pear, sweet_pepper -> bio
+    39: 2, 22: 2, 86: 2, 87: 2,          # keyboard, clock, telephone, television -> electrical
 }
 CLASS_NAMES = ["recyclable", "bio", "electrical_waste"]
 
-# CIFAR-100 index for "dog" class (used for data noise injection)
 DOG_CLASS_IDX = 35
 
 
@@ -30,7 +28,6 @@ class AddGaussianNoise:
 
 
 def build_transforms(strategy: str, image_noise_std: float = 0.01):
-    """Return (train_transform, eval_transform) for a given augmentation strategy."""
     norm = transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD)
     noise = AddGaussianNoise(0.0, image_noise_std)
 
@@ -75,15 +72,6 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
 
 
 class WasteSortingDataModule(pl.LightningDataModule):
-    """
-    DataModule for a 3-class waste sorting task derived from CIFAR-100.
-
-    Etap 3 noise procedure applied to training set only:
-      - symmetric label noise: P(y != y_gt) = noise_rate
-      - per-pixel Gaussian noise with std=image_noise_std
-      - dog image injection: P(x = dog | sample) = p_dog
-    """
-
     def __init__(
         self,
         data_dir: str = "./data",
@@ -132,7 +120,6 @@ class WasteSortingDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         if stage in ("fit", None):
             base = datasets.CIFAR100(self.data_dir, train=True)
-            # collect all dog images before remapping
             dog_idx = np.where(np.array(base.targets) == DOG_CLASS_IDX)[0]
             dog_data = base.data[dog_idx]
 
@@ -162,10 +149,12 @@ class WasteSortingDataModule(pl.LightningDataModule):
             self.train_dataset = _TransformDataset(train_sub, self.transform_train)
             self.val_dataset   = _TransformDataset(val_sub,   self.transform_eval)
 
-        if stage in ("test", None):
+        # if stage in ("test", None):
             test = datasets.CIFAR100(self.data_dir, train=False)
             test = self._filter_and_remap(test)
             self.test_dataset = _TransformDataset(test, self.transform_eval)
+
+        print("Split SZ:", len(self.train_dataset), len(self.val_dataset), len(self.test_dataset))
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size,

@@ -21,3 +21,4 @@ report/tables
 *.out
 *.toc
 *.pdf
+results/*.json

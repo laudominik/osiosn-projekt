@@ -79,7 +79,7 @@ def table_baseline(d: dict):
     lines = [
         r"\begin{table}[ht]",
         r"\centering",
-        r"\caption{Wyniki modelu odniesienia (baseline) – Etap~4.}",
+        r"\caption{Wyniki - baseline}",
         r"\label{tab:baseline}",
         r"\begin{tabular}{ll}",
         r"\toprule",

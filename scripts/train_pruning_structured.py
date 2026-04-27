@@ -25,12 +25,24 @@ if len(sys.argv) > 1:
     SPARSITY_LEVELS = [float(sys.argv[1])]
 
 
+from pytorch_lightning.callbacks import ModelPruning
+
+
+
 def make_structured_pruning_cb(amount: float):
-    """
-    ModelPruning callback using ln_structured on dim=0 (output channels / filters).
-    Pruning is applied globally and made permanent.
-    """
-    return ModelPruning(
+    class SafeStructuredPruning(ModelPruning):
+        def filter_parameters_to_prune(self, parameters_to_prune=None):
+            # 1. Get the default list of parameters (all modules with "weight")
+            params = super().filter_parameters_to_prune(parameters_to_prune)
+            
+            # 2. Keep only those with more than 1 dimension (skips BatchNorm, LayerNorm)
+            filtered_params = [
+                (module, name) for module, name in params 
+                if getattr(module, name).dim() > 1
+            ]
+            return filtered_params
+
+    return SafeStructuredPruning(
         pruning_fn="ln_structured",
         parameter_names=["weight"],
         use_global_unstructured=False,

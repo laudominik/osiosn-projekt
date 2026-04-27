@@ -20,7 +20,7 @@ SEED  = 42
 # find latest baseline checkpoint
 ckpts = sorted(glob.glob("checkpoints/baseline_waste*.ckpt"))
 if not ckpts:
-    raise FileNotFoundError("No baseline checkpoint found – run train_baseline.py first.")
+    raise FileNotFoundError("No baseline checkpoint found - run train_baseline.py first.")
 
 ckpt_path = ckpts[-1]
 print(f"Loading baseline from: {ckpt_path}")
