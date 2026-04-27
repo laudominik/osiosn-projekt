@@ -1,6 +1,7 @@
 import pytorch_lightning as pl
 
-def test(model, dm):   
+def test(model, dm):
+    pl.seed_everything(42, workers=True)
     trainer = pl.Trainer(
         max_epochs=1,
         accelerator="auto",

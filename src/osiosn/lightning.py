@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
 
 class WasteSortingModule(pl.LightningModule):
-    def __init__(self, num_classes=3, learning_rate=1e-5):
+    def __init__(self, num_classes=3, learning_rate=1e-4):
         super().__init__()
         self.save_hyperparameters()
         self.learning_rate = learning_rate
