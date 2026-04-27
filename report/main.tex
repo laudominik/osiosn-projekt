@@ -109,7 +109,7 @@ nadających się do recyklingu, co obniża ich wartość lub czyni je niezdatnym
 do odzysku.
 Inteligentny kosz działający w czasie rzeczywistym pozwala wyeliminować ten
 problem u źródła.
-Platforma docelowa to urządzenie wbudowane (np. Raspberry Pi Nano) o mocno ograniczonej mocy obliczeniowej i
+Platforma docelowa to urządzenie wbudowane (np. Raspberry Pi Nano czy MCU z serii STM32F7) o mocno ograniczonej mocy obliczeniowej i
 pamięci aby ograniczyć koszt smietnika i ryzyko kradzieży elektroniki, zatem model musi spełniać scisłe wymagania dotyczące
 rozmiaru i szybkości działania.
 
@@ -117,7 +117,7 @@ rozmiaru i szybkości działania.
 
 Założona platforma uruchomieniowa wymaga, aby model:
 \begin{itemize}
-  \item zmieścił się w kilku megabajtach pamięci Flash/RAM,
+  \item zmieścił się w max. 1 MB pamięci Flash/RAM,
   \item wykonywał klasyfikację w czasie poniżej 10~ms/obraz przy częstotliwości
         zegara 1~GHz,
   \item zachował dokładność co najmniej 80\% (TODO: cytacja).
@@ -138,7 +138,7 @@ Wybrano zbiór \textbf{CIFAR-100}~\cite{krizhevsky2009learning}, który zawiera:
 CIFAR-100 został wybrany, ponieważ zawiera klasy odpowiadające
 odpadom nadającym się do recyklingu, odpadom biologicznym oraz
 elektroodpadom - dostępne klasy umożliwiają bezpośrednie przemapowanie
-na trzy nowe klasy (Tabela~\ref{tab:class-mapping}).
+na trzy nowe klasy (Tab. \ref{tab:class-mapping}).
 Same zdjęcia są odległe temu jak w rzeczywistości w warunkach śmietnikowych wyglądać będą obrazy
 ale uznaliśmy je za wystarczające na potrzeby tego projektu.
 
@@ -278,38 +278,43 @@ W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
 
 \subsection{Obserwacje}
 
-Istnieje zauważalna różnica między zbieżnością w przypadku wprowadzenia do zbioru treningowego szumu a 
+Zgodnie z Tab. \ref{tab:baseline} istnieje zauważalna różnica między zbieżnością w przypadku wprowadzenia do zbioru treningowego szumu a 
 zaniechania tego. W pierwszej sytuacji model osiąga $F1 \approx 85\%$, w drugiej o 5 p.p. więcej, bo aż $F1 \approx 90$.
 Ogólnie można powiedziec, że w obu tych sytuacjach model osiągnął wysoką dokładność ( niż
 na CIFAR-100 MobileNetV2 osiąga bez ograniczenia liczby klas $F1 \approx 73\%$ a więc i w tym aspekcie nastąpiła poprawa)
 a więc i przyjęty przez nas schemat uczenia modelu odniesienia przyjmujemy za właściwy.
 
-Warto zwrócić uwagę na niską dokładność treningową ($\approx 47 \%$) dla zaszumionego zbioru treningowego, co znacząco odbiega
+Warto zwrócić uwagę na niską dokładność treningową ($\approx 47 \%$) dla zaszumionego zbioru treningowego widoczną na Rys. \ref{fig:training-curves}, co znacząco odbiega
 od dokładności na zbiorze walidacyjnym i testowym. Zgodnie z oczekiwaniami i znanymi rezultatami z dziedziny, nawet przy mocnym zaszumieniu
-model jest w stanie nauczyć się użytecznych cech \cite{szczuko2022osiosn}.
+model jest w stanie nauczyć się użytecznych cech~\cite{szczuko2022osiosn}. W końcu, po 10. epoce dokładność dla obu procesów treningowych nasyca się (mode shift).
 
-% % =============================================================================
-% \section{Przerzedzanie modelu (Etap~5)}
-% \label{sec:etap5}
+\section{Pruning}
+\label{sec:etap5}
 
-% \subsection{Teoretyczne podstawy}
+\subsection{Stosowane kryteria}
 
-% Przerzedzanie (\textit{pruning}) polega na usuwaniu zbędnych wag z modelu w
-% celu zmniejszenia jego rozmiaru i złożoności obliczeniowej.
-% Zgodnie z \textbf{hipotezą loteryjną} (\textit{Lottery Ticket Hypothesis})~\cite{frankle2019lottery},
-% duże sieci neuronowe zawierają podsieci (\textit{winning tickets}), które
-% po odpowiednim treningu osiągają porównywalną do pełnego modelu dokładność.
 
-% \subsubsection*{Kryteria przerzedzania}
-% \begin{itemize}
-%   \item \textbf{L1 Unstructured}: usuwa indywidualne wagi o najmniejszej
-%         normie $\ell_1$; nie zmienia kształtu macierzy wag.
-%   \item \textbf{LN Structured (dim=0)}: usuwa całe filtry o najmniejszej
-%         łącznej normie $\ell_1$; zmienia kształt modelu, umożliwiając
-%         rekonstrukcję mniejszej architektury.
-% \end{itemize}
+Zgodnie z \textit{Lottery Ticket Hypothesis} \cite{frankle2019lottery},
+duże sieci neuronowe zawierają podsieci, które
+po odpowiednim treningu osiągają porównywalną do pełnego modelu dokładność, co jest podstawowym
+uzasadnieniem stosowania technik przerzedzania. Sprawdzamy zatem użyteczność pruningu w naszym zadaniu.
 
-% \subsubsection*{Strategie przerzedzania}
+\subsubsection*{Kryteria przerzedzania}
+\begin{itemize}
+  \item \textbf{L1 Unstructured}: usuwa indywidualne wagi o najmniejszej
+        normie $\ell_1$; nie zmienia kształtu macierzy wag.
+  \item \textbf{LN Structured (dim=0)}: usuwa całe filtry o najmniejszej
+        łącznej normie $\ell_1$; zmienia kształt modelu, umożliwiając
+        rekonstrukcję mniejszej architektury.
+\end{itemize}
+
+\subsubsection*{Strategie przerzedzania}
+
+Przetestowano kilka strategii przerzedzania i wszystkie opisano:
+
+(A) Strategia przerzedzenia jednokrotnego na początku treningu a następnie finetuningu.
+
+
 % W projekcie zastosowano strategię \textbf{prune-while-training}
 % (\textit{Model sparsification for training}): przerzedzanie wykonywane jest
 % po każdej epoce treningowej przez callback \texttt{ModelPruning}

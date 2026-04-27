@@ -32,14 +32,12 @@ def load_results(experiment_id: str) -> dict:
 
 
 def load_example_results() -> dict:
-    """Load the pre-populated example results for table/plot generation."""
     path = RESULTS_DIR / "example_results.json"
     with open(path) as f:
         return json.load(f)
 
 
 def extract_trainer_metrics(trainer) -> dict:
-    """Extract final metrics from a PyTorch Lightning trainer."""
     metrics = {}
     for k, v in trainer.callback_metrics.items():
         try:

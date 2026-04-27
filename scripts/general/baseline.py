@@ -3,7 +3,7 @@ from osiosn import WasteSortingModule, WasteSortingDataModule, train, profile
 from osiosn import save_results, extract_trainer_metrics
 
 
-EPOCHS = 10
+EPOCHS = 50
 BATCH  = 64
 SEED   = 42
 
@@ -18,7 +18,7 @@ for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
 
     dm    = WasteSortingDataModule(batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
                                    augmentation="basic", seed=SEED)
-    model = WasteSortingModule(learning_rate=1e-4, optimizer_type="adam",
+    model = WasteSortingModule(learning_rate=1e-5, optimizer_type="adam",
                                 scheduler_type="cosine")
 
     trainer, model, history = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
