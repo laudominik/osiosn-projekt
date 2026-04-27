@@ -1,0 +1,686 @@
+\documentclass[12pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=3cm, right=2.5cm]{geometry}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{caption}
+
+\lstdefinestyle{python}{
+  language=Python,
+  basicstyle=\small\ttfamily,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  stringstyle=\color{red!60!black},
+  commentstyle=\color{gray}\itshape,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=6pt,
+  frame=single,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b,
+}
+\lstset{style=python}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=green!50!black,
+  urlcolor=blue!70!black,
+}
+
+\sisetup{round-mode=places, round-precision=2}
+
+\title{%
+  \vspace{-1cm}
+  \textbf{Śmieci-net}\\[0.5em]
+  \large MobileNetV2 dostosowany do inteligentnego śmietnika na podstawie zbioru danych CIFAR-100\\[0.3em]
+}
+\author{Dominik Lau (188697), Maciej Krzyżanowski (188872)}
+\date{Kwiecień 2026}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Projekt dotyczy budowy i optymalizacji klasyfikatora segregacji odpadów na
+potrzeby wbudowanego urządzenia inteligentnego kosza.
+Jako model bazowy zastosowano MobileNetV2~x0.75 wytrenowany na zbiorze
+CIFAR-100, który następnie dostosowano metodą \textit{transfer learning} do
+3-klasowego zadania rozróżniania odpadów: recyclable, bio oraz
+electrical\_waste.
+W ramach projektu przebadano metody przerzedzania modelu (L1 unstructured oraz
+LN structured channel pruning), kwantyzację (PTQ INT8, QAT INT8) oraz
+optymalizację procesu uczenia (augmentacja danych, regularyzacja dropout,
+optymalizatory AdamW/SGD, harmonogramy LR).
+Najlepszy zoptymalizowany wariant osiągnął
+\textbf{85.8\%} dokładności przy rozmiarze modelu \textbf{1.67~MB} –
+\textbf{5.6-krotna} redukcja rozmiaru modelu odniesienia (9.44~MB)
+i \textbf{4-krotne} przyspieszenie wnioskowania na CPU.
+\end{abstract}
+
+\textbf{Słowa klucze:} Śmieci, Śmietniki, System Kaucyjny
+
+% \tableofcontents
+
+\section{Wprowadzenie i opis zagadnienia (Etap~1)}
+\label{sec:etap1}
+
+\subsection{Cel projektu}
+Celem projektu jest opracowanie klasyfikatora (Śmieci-Net) będącego komponentem systemu inteligentnego sortowania odpadów.
+System ten ma być zamontowany w automatycznym koszu na śmieci, który
+analizuje zdjęcia wrzucanych przedmiotów i automatycznie kieruje je do
+właściwego pojemnika, w celu pozbawienia obywatela obowiązku segregowania samemu (jak w przypadku systemu kaucyjnego).
+
+\subsubsection*{Definicja zadania}
+Zbudować model sieci neuronowej, który na podstawie zdjęcia przedmiotu
+(32$\times$32~pikseli, RGB) przypisuje go do jednej z trzech klas:
+\begin{enumerate}
+  \item \textbf{recyclable} – przedmioty nadające się do recyklingu
+        (butelki, puszki, talerze itp.),
+  \item \textbf{bio} – odpady biologiczne (owoce, warzywa, \emph{grzyby}),
+  \item \textbf{electrical\_waste} – elektroodpady (elektronika, AGD).
+\end{enumerate}
+
+\subsubsection*{Uzasadnienie}
+Błędy ludzkie podczas segregacji odpadów prowadzą do zanieczyszczenia frakcji
+nadających się do recyklingu, co obniża ich wartość lub czyni je niezdatnymi
+do odzysku.
+Inteligentny kosz działający w czasie rzeczywistym pozwala wyeliminować ten
+problem u źródła.
+Platforma docelowa to urządzenie wbudowane (np. Raspberry Pi Nano) o mocno ograniczonej mocy obliczeniowej i
+pamięci aby ograniczyć koszt smietnika i ryzyko kradzieży elektroniki, zatem model musi spełniać scisłe wymagania dotyczące
+rozmiaru i szybkości działania.
+
+\subsection{Wymogi platformy}
+
+Założona platforma uruchomieniowa wymaga, aby model:
+\begin{itemize}
+  \item zmieścił się w kilku megabajtach pamięci Flash/RAM,
+  \item wykonywał klasyfikację w czasie poniżej 10~ms/obraz przy częstotliwości
+        zegara 1~GHz,
+  \item zachował dokładność co najmniej 80\% (TODO: cytacja).
+\end{itemize}
+
+Oczekuje się, że zastosowanie przerzedzania i kwantyzacji pozwoli osiągnąć
+te cele bez konieczności projektowania architektury od podstaw.
+
+\section{Zbiór danych i model bazowy (Etap~2)}
+\label{sec:etap2}
+
+\subsection{Wybór zbioru danych}
+
+Wybrano zbiór \textbf{CIFAR-100}~\cite{krizhevsky2009learning}, który zawiera:
+\begin{itemize}
+  \item 60~000 obrazów kolorowych o rozdzielczości $32 \times 32$ piksele,
+  \item 50~000 próbek treningowych i 10~000 testowych,
+  \item 100 klas (500 próbek treningowych na klasę).
+\end{itemize}
+
+CIFAR-100 został wybrany, ponieważ zawiera klasy odpowiadające typowym
+odpadom nadającym się do recyklingu, odpadom biologicznym oraz
+elektroodpadom -- dostępne klasy umożliwiają bezpośrednie przemapowanie
+na trzy kategorie docelowe (Tabela~\ref{tab:class-mapping}).
+W porównaniu do ImageNet (1~000 klas, obrazy $224 \times 224$), CIFAR-100
+zapewnia wystarczające bogactwo klas przy wielokrotnie mniejszych wymaganiach
+obliczeniowych, co czyni go idealnym do badań na ograniczonym sprzęcie.
+Zbiór CIFAR-10 byłby zbyt mały klasowo, a własne dane zdjęciowe niedostępne
+w wymaganym wolumenie.
+
+\begin{table}[ht]
+\centering
+\caption{Przemapowanie klas CIFAR-100 na kategorie segregacji odpadów.}
+\label{tab:class-mapping}
+\begin{tabular}{lll}
+\toprule
+\textbf{Klasy CIFAR-100} & \textbf{Liczba klas} & \textbf{Kategoria docelowa} \\
+\midrule
+bottle, bowl, can, cup, plate     & 5 & recyclable       \\
+apple, mushroom, orange, pear, sweet\_pepper & 5 & bio    \\
+keyboard, clock, telephone, television & 4 & electrical\_waste \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Wybór i charakterystyka modelu bazowego}
+
+Wybrany model to \textbf{MobileNetV2~x0.75}~\cite{sandler2018mobilenetv2}
+wstępnie wytrenowany na CIFAR-100 (implementacja: \texttt{chenyaofo/pytorch-cifar-models}~\cite{chenyaofo2021cifar}).
+
+Architektura MobileNetV2 została zaprojektowana z myślą o urządzeniach
+mobilnych i wbudowanych:
+\begin{itemize}
+  \item \textbf{Odwrócone bloki resztkowe} (\textit{inverted residuals})
+        z liniowymi warstwami bottleneck minimalizują liczbę operacji MACC,
+  \item \textbf{Separowalne sploty}
+        (\textit{depthwise separable convolutions}) redukują złożoność
+        obliczeniową $\mathcal{O}(k^2 \cdot C)$ do
+        $\mathcal{O}(k^2 + C)$ względem standardowych splotów,
+  \item współczynnik skalowania $\alpha=0.75$ redukuje liczbę filtrów
+        we wszystkich warstwach, zmniejszając model bez znaczącej utraty
+        dokładności.
+\end{itemize}
+
+Model nie zawiera wcześniej zastosowanych technik upraszczania (pruning,
+destylacja), co stanowi świadomy warunek projektu -- optymalizacja
+zostanie przeprowadzona samodzielnie.
+
+\subsubsection*{Profil modelu}
+\input{tables/model_profile.tex}
+
+\subsection{Porównanie z innymi zbiorami i modelami}
+
+\begin{itemize}
+  \item \textbf{ImageNet (1k klas)} -- oferuje pełen zestaw klas lecz wymaga
+        modeli $224\times224$, co powoduje 49-krotnie wyższe koszty obliczeniowe
+        przy wejściu; wytrenowane modele MobileNetV2 osiągają 72--73\% top-1.
+  \item \textbf{CIFAR-10} -- zbyt mało klas dla zadania segregacji.
+  \item \textbf{Garbage Classification Dataset (kaggle)} -- wyspecjalizowany,
+        ale niezbalansowany i niereprezentujący warunków rzeczywistych tak
+        dobrze jak standaryzowany benchmark.
+  \item Wyjściowa dokładność \textbf{MobileNetV2~x0.75 na CIFAR-100}
+        wynosi 74\% (top-1) -- po przemapowaniu do 3 klas i douczeniu
+        uzyska się znacznie wyższy wynik dzięki redukcji liczby klas.
+\end{itemize}
+
+% =============================================================================
+\section{Przygotowanie danych (Etap~3)}
+\label{sec:etap3}
+
+\subsection{Nowe klasy i uzasadnienie}
+
+Na potrzeby zadania segregacji odpadów ze 100 klas CIFAR-100 wybrano 14 klas
+i scalono je w 3 kategorie (Tabela~\ref{tab:class-mapping}).
+Każda kategoria odpowiada typowej frakcji odpadów:
+\begin{itemize}
+  \item \textbf{recyclable}: przedmioty z tworzyw sztucznych, metalu lub
+        ceramiki zbieranych selektywnie,
+  \item \textbf{bio}: owoce i warzywa -- odpady organiczne kompostowalne,
+  \item \textbf{electrical\_waste}: sprzęt elektroniczny wymagający
+        specjalnego unieszkodliwiania.
+\end{itemize}
+Pozostałe 86 klas CIFAR-100 zostało odfiltrowanych.
+
+\subsection{Procedura zaszumiania etykiet}
+
+Zgodnie z wymaganiami projektu zastosowano trzy rodzaje szumu w zbiorze
+treningowym (wyłącznie):
+
+\paragraph{1. Szum etykiet (Label noise)}
+Losowa zmiana etykiety z prawdopodobieństwem:
+\begin{equation}
+  \mathcal{P}(y^{\text{label}} \neq y^{\text{gt}}) = 0.5
+\end{equation}
+Implementacja: z puli próbek treningowych wybierane jest losowo 50\% i ich
+etykieta zostaje podmieniona na jedną z pozostałych klas (jednostajnie),
+bez zwracania.
+Nasionko generatora: \texttt{seed=42} -- gwarantuje replikowalność wyników.
+
+\paragraph{2. Szum gaussowski na pikselach}
+Do każdego obrazu podczas ładowania dodawany jest szum:
+\begin{equation}
+  x' = x + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma^2 \mathbf{I}), \quad \sigma=0.01
+\end{equation}
+
+\paragraph{3. Zamiana obrazka na zdjęcie psa}
+Dla 10\% próbek treningowych (wybieranych losowo przy \texttt{seed=42})
+pikselowe dane obrazu zastępowane są obrazem psa z klasy CIFAR-100 nr~35
+(\textit{dog}), przy zachowaniu oryginalnej etykiety kategorii śmieci:
+\begin{equation}
+  \mathcal{P}(x = \text{dog} \mid x^{\text{gt}}) = 0.1
+\end{equation}
+
+\subsubsection*{Analiza wynikowego zbioru}
+Po filtrowaniu i podziale:
+\begin{itemize}
+  \item Zbiór treningowy: $\sim$5~600 próbek (80\% puli 14 klas $\times$ 500),
+  \item Zbiór walidacyjny: $\sim$1~400 próbek (czyste etykiety),
+  \item Zbiór testowy: $\sim$1~400 próbek ze zbioru testowego CIFAR-100
+        (czyste etykiety).
+\end{itemize}
+
+Kluczowy efekt: zbiór treningowy ma 50\% zaszumionych etykiet, natomiast
+walidacja i test -- etykiety oryginalne. To celowy projekt badawczy
+pozwalający zmierzyć, jak bardzo model potrafi wyuczyć prawdziwe wzorce
+pomimo silnych zakłóceń.
+
+\subsection{Kluczowe fragmenty implementacji}
+
+\begin{lstlisting}[caption={Implementacja zaszumiania etykiet i wstrzykiwania psów -- \texttt{dataloader.py}.}]
+def _add_label_noise(self, targets: list) -> list:
+    """Symmetric label noise: flip noise_rate fraction of labels."""
+    rng = np.random.default_rng(self.seed)  # powtarzalnosc wynikow
+    targets = np.array(targets)
+    flip_mask = rng.random(len(targets)) < self.noise_rate
+    num_classes = len(CLASS_NAMES)
+    for i in np.where(flip_mask)[0]:
+        other = [c for c in range(num_classes) if c != targets[i]]
+        targets[i] = rng.choice(other)
+    return targets.tolist()
+
+# dog injection (training only)
+n_dogs = int(self.p_dog * len(train_idx))
+inject_at = rng.choice(train_idx, n_dogs, replace=False)
+src_dogs  = rng.choice(len(dog_data), n_dogs, replace=True)
+base.data[inject_at] = dog_data[src_dogs]
+\end{lstlisting}
+
+% =============================================================================
+\section{Model odniesienia -- Baseline (Etap~4)}
+\label{sec:etap4}
+
+\subsection{Procedura douczania}
+
+Douczanie (\textit{fine-tuning}) polega na:
+\begin{enumerate}
+  \item \textbf{Zamrożeniu} wszystkich warstw cech (\texttt{features})
+        MobileNetV2 -- wagi backbone nie są aktualizowane.
+  \item \textbf{Zastąpieniu} ostatniej warstwy liniowej
+        (1280-neuronowej) warstwą o 3 wyjściach.
+  \item \textbf{Trenowaniu} wyłącznie nowej głowicy klasyfikacyjnej
+        przez 10 epok.
+\end{enumerate}
+
+Uzasadnienie zamrożenia: backbone wytrenowany na CIFAR-100 posiada już
+reprezentacje cech istotnych dla klasyfikacji na obrazach $32\times32$;
+douczanie wyłącznie głowicy jest szybkie i zapobiega przetrenowaniu
+na małym zbiorze.
+
+\subsubsection*{Konfiguracja uczenia}
+\begin{itemize}
+  \item Funkcja straty: \textbf{CrossEntropyLoss} (bez label smoothing)
+  \item Optymalizator: \textbf{Adam}, lr=$10^{-4}$
+  \item Harmonogram LR: \textbf{CosineAnnealingWarmRestarts}
+        ($T_0=30$, $\eta_{\min}=10^{-6}$)
+  \item Gradient clipping: norm $\leq 0.5$
+  \item Rozmiar mini-batch: 64
+\end{itemize}
+
+\subsection{Wyniki modelu odniesienia}
+
+\input{tables/baseline.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/training_curves.pdf}
+  \caption{Krzywe uczenia modelu odniesienia (10 epok). Widoczna różnica między
+    dokładnością treningową ($\approx65$\%) a walidacyjną ($\approx87$\%) wynika
+    z 50\% szumu etykiet w zbiorze treningowym.}
+  \label{fig:training-curves}
+\end{figure}
+
+\subsection{Interpretacja wyników}
+
+Niska dokładność treningowa ($\approx$65\%) przy wysokiej walidacyjnej
+($\approx$87\%) jest oczekiwanym efektem zastosowania 50\% szumu etykiet.
+Model uczy się na częściowo błędnych sygnałach, jednak dzięki zamrożonemu
+backbone z bogatymi cechami potrafi generalizować na czystych danych.
+Dokładność testowa 87.2\% przy 3 klasach potwierdza skuteczność podejścia
+transfer learning.
+
+% =============================================================================
+\section{Przerzedzanie modelu (Etap~5)}
+\label{sec:etap5}
+
+\subsection{Teoretyczne podstawy}
+
+Przerzedzanie (\textit{pruning}) polega na usuwaniu zbędnych wag z modelu w
+celu zmniejszenia jego rozmiaru i złożoności obliczeniowej.
+Zgodnie z \textbf{hipotezą loteryjną} (\textit{Lottery Ticket Hypothesis})~\cite{frankle2019lottery},
+duże sieci neuronowe zawierają podsieci (\textit{winning tickets}), które
+po odpowiednim treningu osiągają porównywalną do pełnego modelu dokładność.
+
+\subsubsection*{Kryteria przerzedzania}
+\begin{itemize}
+  \item \textbf{L1 Unstructured}: usuwa indywidualne wagi o najmniejszej
+        normie $\ell_1$; nie zmienia kształtu macierzy wag.
+  \item \textbf{LN Structured (dim=0)}: usuwa całe filtry o najmniejszej
+        łącznej normie $\ell_1$; zmienia kształt modelu, umożliwiając
+        rekonstrukcję mniejszej architektury.
+\end{itemize}
+
+\subsubsection*{Strategie przerzedzania}
+W projekcie zastosowano strategię \textbf{prune-while-training}
+(\textit{Model sparsification for training}): przerzedzanie wykonywane jest
+po każdej epoce treningowej przez callback \texttt{ModelPruning}
+biblioteki PyTorch Lightning:
+\begin{enumerate}
+  \item Trening epoki normalnie,
+  \item Przerzedzanie o zadany poziom rzadkości (kumulacyjne),
+  \item Wagi wyzerowane permanentnie (\texttt{make\_pruning\_permanent=True}).
+\end{enumerate}
+
+\subsection{Wyniki przerzedzania}
+
+\input{tables/pruning.tex}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[b]{0.53\linewidth}
+    \includegraphics[width=\linewidth]{figures/pruning_accuracy_tradeoff.pdf}
+    \caption{Dokładność vs.\ rzadkość.}
+    \label{fig:pruning-tradeoff}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.44\linewidth}
+    \includegraphics[width=\linewidth]{figures/inference_time_comparison.pdf}
+    \caption{Czas wnioskowania CPU.}
+    \label{fig:inference-time}
+  \end{subfigure}
+  \caption{Wyniki przerzedzania modelu. Pruning strukturalne daje rzeczywiste
+    przyspieszenie wnioskowania dzięki mniejszej liczbie kanałów.}
+  \label{fig:pruning}
+\end{figure}
+
+\subsection{Analiza wyników}
+
+\paragraph{Przerzedzanie niestrukturalne (L1 Unstructured)}
+Do 50\% rzadkości spadek dokładności jest akceptowalny ($-1.7$~pp).
+Powyżej 70\% następuje gwałtowny spadek ($-3.8$~pp przy 70\%,
+$-9.1$~pp przy 90\%).
+Ważna obserwacja: przerzedzanie niestrukturalne \textbf{nie zmniejsza} czasu
+wnioskowania ani rozmiaru pliku (zera nadal są przechowywane i mnożone),
+co potwierdzają wyniki w~Tabeli~\ref{tab:pruning} -- CPU~ms jest zbliżone
+do baseline.
+
+\paragraph{Przerzedzanie strukturalne (LN Structured)}
+Daje nieco gorsze wyniki dokładności ($-2.0$~pp przy 30\% vs.\ $-0.6$~pp
+dla unstructured), jednak zapewnia \textbf{rzeczywistą} redukcję rozmiaru
+modelu i czasu wnioskowania.
+Przy rzadkości 50\% model jest $2\times$ mniejszy i działa $\approx1.9\times$
+szybciej na CPU.
+
+\paragraph{Uwaga o bibliotekach}
+Jak wskazano w literaturze~\cite{chetlur2014cudnn}, biblioteki BLAS nie są
+zoptymalizowane dla rzadkich macierzy -- przyspieszenie z unstructured
+pruning wymaga dedykowanych jąder (np.\ cuSPARSE, biblioteka SpMM).
+
+\subsection{RigL -- ocena możliwości zastosowania}
+
+Algorytm \textbf{RigL}~\cite{evci2020rigging} (\textit{Rigging the Lottery})
+realizuje przerzedzanie przez dynamiczną aktualizację topologii sieci podczas
+treningu, zachowując stały rozmiar modelu przy znacznie lepszej dokładności.
+W ramach projektu zbadano możliwość jego zastosowania:
+\begin{itemize}
+  \item Oficjalna implementacja JAX (brak bezpośredniego wsparcia PyTorch),
+  \item Porty PyTorch są nieoficjalne i niestabilne API,
+  \item Mały zbiór danych ($\sim$5~600 próbek) ogranicza korzyści RigL
+        (algorytm zaprojektowany dla ImageNet-scale training),
+  \item \textbf{Decyzja}: zastosowano iteracyjne przerzedzanie z
+        \texttt{ModelPruning}, które jest stabilną i dobrze udokumentowaną
+        alternatywą.
+\end{itemize}
+
+% =============================================================================
+\section{Dodatkowe optymalizacje modelu (Etap~6)}
+\label{sec:etap6}
+
+\subsection{Kwantyzacja wag}
+
+Kwantyzacja polega na reprezentacji parametrów modelu z mniejszą precyzją
+bitową.
+Przejście z FP32 do INT8 redukuje rozmiar modelu $4\times$ i przyspiesza
+wnioskowanie na CPU dzięki szybszej arytmetyce całkowitoliczbowej.
+
+\subsubsection*{Post-Training Quantization -- PTQ dynamiczna (INT8)}
+
+Kwantyzacja po treningu bez dodatkowego zbioru kalibracyjnego:
+\begin{lstlisting}[caption={Zastosowanie PTQ dynamicznej INT8 -- \texttt{train\_quantized\_ptq.py}.}]
+model_q = torch.quantization.quantize_dynamic(
+    model,
+    {torch.nn.Linear, torch.nn.Conv2d},
+    dtype=torch.qint8,
+)
+\end{lstlisting}
+Zalety: zero kosztu dodatkowego treningu; wady: mogą pojawiać się małe
+straty dokładności w porównaniu do QAT.
+
+\subsubsection*{Quantization-Aware Training -- QAT (INT8)}
+
+QAT symuluje kwantyzację w trakcie treningu przy użyciu
+\textit{fake quantization operators} (operatorów symulowanych):
+\begin{equation}
+  x_q = \text{round}\!\left(\frac{x}{\Delta}\right) \cdot \Delta, \quad
+  \Delta = \frac{x_{\max} - x_{\min}}{2^b - 1}
+\end{equation}
+gdzie $b=8$ bitów.
+Backpropagation używa operatora \textit{straight-through estimator} (STE)
+dla gradientów przez operację zaokrąglenia.
+
+\subsection{Wyniki kwantyzacji}
+
+\input{tables/quantization.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\linewidth]{figures/model_size_comparison.pdf}
+  \caption{Porównanie rozmiarów modelu przed i po optymalizacji.
+    Kwantyzacja INT8 redukuje rozmiar $4\times$;
+    połączenie z pruning strukturalnym 50\% daje $\approx8\times$ kompresję.}
+  \label{fig:model-size}
+\end{figure}
+
+\subsection{Komentarz -- współdzielenie wag filtrów (Kernel sharing)}
+
+W modelu wykorzystane są warstwy splotowe.
+Potencjalne korzyści z współdzielenia wag (\textit{kernel sharing})
+byłyby ograniczone ze względu na małą liczbę filtrów w modelu
+x0.75 (zamrożonym -- head jest wyłącznie liniowy).
+Redukcja parametrów głowicy przez współdzielenie nie jest uzasadniona
+przy zaledwie 3 klasach wyjściowych.
+
+% =============================================================================
+\section{Optymalizacja hiperparametrów uczenia (Etap~7)}
+\label{sec:etap7}
+
+Celem etapu jest ustalenie optymalnej konfiguracji uczenia, która
+\textbf{zwiększa dokładność} modelu i minimalizuje przetrenowanie,
+jednocześnie zachowując efektywność obliczeniową.
+
+\subsection{Augmentacja danych}
+
+Augmentacja danych pozwala sztucznie zwiększyć różnorodność zbioru
+treningowego, co jest szczególnie ważne przy małych zbiorach danych.
+Zbadano cztery strategie:
+
+\begin{description}
+  \item[none] Brak augmentacji -- tylko normalizacja.
+  \item[basic] Losowe przycięcie (\texttt{RandomCrop(32, padding=4)})
+    i losowe odbicie poziome (\texttt{RandomHorizontalFlip}).
+    Jest to konfiguracja standardowa dla CIFAR.
+  \item[standard] Dodano \texttt{ColorJitter} (jasność, kontrast,
+    nasycenie $\pm0.2$) oraz \texttt{RandomGrayscale} ($p=0.1$).
+  \item[aggressive] Pełna augmentacja: rotacja $\pm15^{\circ}$, perspektywa,
+    silniejszy jitter.
+\end{description}
+
+\textbf{Uwaga}: pełna augmentacja geometryczna (obrót, odbicie) jest
+uzasadniona dla zdjęć przedmiotów 3D (butelki, puszki) rzucanych do kosza
+pod różnymi kątami. Nie stosuje się augmentacji właściwej mel-spektrogramom.
+
+\input{tables/augmentation.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\linewidth]{figures/augmentation_comparison.pdf}
+  \caption{Wpływ augmentacji na dokładność. Strategia agresywna pogarsza
+    wyniki -- zbyt silne przekształcenia zniekształcają cechy istotne
+    dla klasyfikacji przy małej rozdzielczości $32\times32$.}
+  \label{fig:augmentation}
+\end{figure}
+
+\subsection{Regularyzacja -- Dropout}
+
+Dropout~\cite{szczuko2022osiosn} losowo zeruje aktywacje z prawdopodobieństwem
+$p$ podczas uczenia, zapobiegając ko-adaptacji neuronów:
+\begin{equation}
+  h' = h \odot \mathbf{m}, \quad \mathbf{m}_i \sim \text{Bernoulli}(1-p)
+\end{equation}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\linewidth]{figures/dropout_regularization.pdf}
+  \caption{Wpływ współczynnika dropout na dokładność klasyfikacji.
+    Optymalne $p=0.1$; wyższe wartości nadmiernie regularyzują.}
+  \label{fig:dropout}
+\end{figure}
+
+\subsection{Optymalizatory i harmonogramy LR}
+
+\paragraph{Porównanie optymalizatorów}
+\begin{itemize}
+  \item \textbf{AdamW}~\cite{loshchilov2018decoupled} ($\lambda=10^{-4}$)
+        przewyższa Adam dzięki prawidłowej implementacji weight decay
+        (niezależnej od adaptacji chwilowych momentów).
+  \item \textbf{SGD} z Nesterovem osiąga gorsze wyniki przy 10 epokach
+        (wymaga więcej epok do konwergencji).
+\end{itemize}
+
+\paragraph{Porównanie harmonogramów LR}
+\begin{itemize}
+  \item \textbf{OneCycleLR}~\cite{smith2018superconvergence} osiąga
+        najlepszy wynik dzięki agresywnemu wzrostowi LR na początku
+        (\textit{superconvergence}), co szczególnie pomaga przy małych zbiorach.
+  \item ReduceLROnPlateau jest bezpieczne, ale wolniejsze w adaptacji.
+  \item StepLR -- najgorszy: gwałtowne obniżenia LR co 5 epok
+        zaburzają konwergencję.
+\end{itemize}
+
+\input{tables/hyperparams.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/optimizer_scheduler_comparison.pdf}
+  \caption{Porównanie optymalizatorów i harmonogramów LR -- Etap~7.}
+  \label{fig:optimizer-scheduler}
+\end{figure}
+
+\subsection{Czas uczenia i wnioskowania}
+
+Model z optymalizacją uczenia (AdamW + OneCycleLR + standard aug + dropout 0.1)
+nie zmienia czasu wnioskowania ($\approx$15.8~ms/obraz na CPU) w porównaniu
+do baseline, ponieważ architektura pozostaje niezmieniona.
+Czas treningu na epokę jest porównywalny ($\pm$5\%).
+
+\subsection{Wyniki najlepszego modelu Etap~7}
+
+Najlepszy model (\texttt{best\_etap7}):
+\textbf{88.3\%} dokładności (wzrost o $+1.1$~pp vs.\ baseline).
+Konfiguracja: AdamW ($\lambda=10^{-4}$) + OneCycleLR + augmentacja standardowa
++ Dropout $p=0.1$ + label smoothing $=0.05$.
+
+% =============================================================================
+\section{Porównanie końcowe i wnioski}
+\label{sec:wnioski}
+
+\subsection{Zbiorcze zestawienie}
+
+\input{tables/final_comparison.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\linewidth]{figures/accuracy_vs_size.pdf}
+  \caption{Kompromis dokładność--rozmiar modelu dla wszystkich zbadanych
+    wariantów. Lewy-górny narożnik jest optymalny (mały model, wysoka
+    dokładność).}
+  \label{fig:accuracy-vs-size}
+\end{figure}
+
+\subsection{Odpowiedź na pytania etapu 7}
+
+\paragraph{Czy model uproszczony działa szybciej na CPU?}
+Tak -- lecz \textbf{wyłącznie przy pruning strukturalnym i kwantyzacji}.
+Pruning niestrukturalny nie przyspiesza CPU (zera nadal są mnożone przez
+gęste jądra BLAS).
+Najlepszy wariant (pruning strukturalny 30\% + PTQ INT8) uzyskuje
+\textbf{$4\times$ przyspieszenie CPU} przy zachowaniu akceptowalnej
+dokładności ($-3$~pp vs.\ baseline).
+
+\paragraph{Wpływ augmentacji na dokładność}
+Augmentacja standardowa ($+0.6$~pp) jest optymalna.
+Agresywna augmentacja pogarsza wyniki ($-0.5$~pp) przy małej rozdzielczości
+$32\times32$ -- zbyt duże deformacje geometryczne niszczą cechy
+krytyczne dla klasyfikacji.
+
+\paragraph{Dobór regularyzacji}
+Dropout $p=0.1$ i AdamW weight decay $\lambda=10^{-4}$ są komplementarne
+i razem dają najlepszy efekt regularyzacji na małym zbiorze.
+Większy dropout ($p \geq 0.3$) nadmiernie regularyzuje przy zamrożonym
+backbone.
+
+\subsection{Wnioski końcowe}
+
+\begin{enumerate}
+  \item Transfer learning z MobileNetV2~x0.75 (pretrained CIFAR-100)
+        zapewnia silny punkt startowy przy 3-klasowym zadaniu z zaszumionymi
+        etykietami (\textbf{87.2\%} test acc).
+  \item Optymalizacja hiperparametrów (Etap~7) zwiększa dokładność do
+        \textbf{88.3\%} bez zmiany architektury.
+  \item Kwantyzacja PTQ INT8 osiąga \textbf{$4\times$ kompresję i $3\times$
+        przyspieszenie} przy minimalnej utracie dokładności ($-0.1$~pp).
+  \item Połączenie pruning strukturalnego 30\% + PTQ daje model o rozmiarze
+        \textbf{1.67~MB} i czasie wnioskowania \textbf{3.9~ms/obraz} na CPU --
+        spełnia wymagania platformy docelowej przy dokładności \textbf{85.8\%}.
+  \item Model zoptymalizowany jest \textbf{5.6$\times$ mniejszy} i działa
+        \textbf{4$\times$ szybciej} od modelu odniesienia, potwierdzając
+        praktyczną użyteczność badanych technik optymalizacji.
+\end{enumerate}
+
+% =============================================================================
+\appendix
+
+\section{Środowisko i zależności}
+
+\begin{lstlisting}[caption={Instalacja zależności projektu (uv).}]
+# Klonowanie i instalacja
+git clone <repo>
+cd osiosn-projekt
+uv sync
+# Uruchomienie pelnego pipeline'u
+bash scripts/run_all_experiments.sh
+# Kompilacja raportu LaTeX
+cd report && pdflatex main.tex && bibtex main && pdflatex main.tex
+\end{lstlisting}
+
+Kluczowe wersje bibliotek:
+\begin{itemize}
+  \item Python 3.11
+  \item PyTorch 2.10, TorchVision 0.25
+  \item PyTorch Lightning 2.6
+  \item TorchMetrics 1.x
+  \item NumPy 2.4, Matplotlib 3.x
+\end{itemize}
+
+\section{Generowanie tabel i wykresów}
+
+\begin{lstlisting}[caption={Generowanie assetów do raportu.}]
+uv run python scripts/generate_tables.py  # -> report/tables/*.tex
+uv run python scripts/generate_plots.py   # -> report/figures/*.pdf
+\end{lstlisting}
+
+% =============================================================================
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
