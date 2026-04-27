@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
+import zipfile
 
 
 def _best_device():
@@ -33,18 +34,21 @@ def profile(model_module, datamodule) -> dict:
     results["nonzero_params"] = nonzero_params
     results["sparsity"] = 1.0 - nonzero_params / total_params
 
-    # --- file size (FP32 weights only) ---
     tmp = "/tmp/_profile_model.pth"
+    tmp_zip = "/tmp/_profile_model.zip"
+
     torch.save(model.state_dict(), tmp)
+
+    with zipfile.ZipFile(tmp_zip, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(tmp, arcname="model.pth")
+
     results["size_mb"] = os.path.getsize(tmp) / (1024 ** 2)
+    results["size_zip_mb"] = os.path.getsize(tmp_zip) / (1024 ** 2) # TO BĘDZIE MALEĆ!
+
     os.remove(tmp)
+    os.remove(tmp_zip)
 
-    print(f"\n{'─'*40}")
-    print(f"  Total params   : {total_params:,}")
-    print(f"  Non-zero params: {nonzero_params:,}  (sparsity={results['sparsity']:.1%})")
-    print(f"  Checkpoint size: {results['size_mb']:.2f} MB")
-
-    # --- prepare a single test batch ---
+    print(f"  Checkpoint size: {results['size_mb']:.2f} MB (Zipped: {results['size_zip_mb']:.2f} MB)")
     datamodule.setup(stage="test")
     batch = next(iter(datamodule.test_dataloader()))
     x_cpu, _ = batch

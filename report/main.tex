@@ -207,10 +207,6 @@ Losowa zmiana etykiety z prawdopodobieństwem:
 \begin{equation}
   \mathcal{P}(y^{\text{label}} \neq y^{\text{gt}}) = 0.5
 \end{equation}
-% Implementacja: z puli próbek treningowych wybierane jest losowo 50\% i ich
-% etykieta zostaje podmieniona na jedną z pozostałych klas (jednostajnie),
-% bez zwracania.
-% Nasionko generatora: \texttt{seed=42} -- gwarantuje replikowalność wyników.
 
 \paragraph{N2. Szum gaussowski na pikselach}
 Do każdego obrazu podczas ładowania dodawany jest szum:
@@ -311,19 +307,16 @@ uzasadnieniem stosowania technik przerzedzania. Sprawdzamy zatem użyteczność 
 \subsubsection*{Strategie przerzedzania}
 
 Przetestowano kilka strategii przerzedzania i wszystkie opisano:
+\begin{itemize}
+  \item Strategia przerzedzenia niestrukturalnego jednokrotnego na początku treningu a następnie finetuning (UNSTRUCTURED ONESHOT).
+  \item Strategia przerzedzania niestrukturalnego w kilku krokach podczas finetuningu (UNSTRUCTURED SCHEDULED).
+  \item Strategia przerzedzania strukturalnego jednokrotnego na początku treningu a następnie finetuning (STRUCTURED ONESHOT).
+  \item Strategia przerzedzania strukturalnego w kilku krokach podczas finetuningu (STRUCTURED SCHEDULED).
+\end{itemize}
 
-(A) Strategia przerzedzenia jednokrotnego na początku treningu a następnie finetuningu.
+Do implementacji harmonogramu (.. SCHEDULED) wykorzystujemy następującą technikę liczenia odsetka wag, jakie mają zostać
+w kolejnej epoce usunięte.
 
-
-% W projekcie zastosowano strategię \textbf{prune-while-training}
-% (\textit{Model sparsification for training}): przerzedzanie wykonywane jest
-% po każdej epoce treningowej przez callback \texttt{ModelPruning}
-% biblioteki PyTorch Lightning:
-% \begin{enumerate}
-%   \item Trening epoki normalnie,
-%   \item Przerzedzanie o zadany poziom rzadkości (kumulacyjne),
-%   \item Wagi wyzerowane permanentnie (\texttt{make\_pruning\_permanent=True}).
-% \end{enumerate}
 
 % \subsection{Wyniki przerzedzania}
 
@@ -604,27 +597,13 @@ Przetestowano kilka strategii przerzedzania i wszystkie opisano:
 % % =============================================================================
 % \appendix
 
-% \section{Środowisko i zależności}
+\section*{Uwagi dot. reprodukcji}
 
-% \begin{lstlisting}[caption={Instalacja zależności projektu (uv).}]
-% # Klonowanie i instalacja
-% git clone <repo>
-% cd osiosn-projekt
-% uv sync
-% # Uruchomienie pelnego pipeline'u
-% bash scripts/run_all_experiments.sh
-% # Kompilacja raportu LaTeX
-% cd report && pdflatex main.tex && bibtex main && pdflatex main.tex
-% \end{lstlisting}
+Skorzystano z managera pakietów \texttt{uv}, który tworzy pliki typu \texttt{lock} umożliwiające dokładne odtworzenie środowiska, a więc
+podawanie tutaj dokładnych wersji pakietów jest zbędne. Wszystko jest dostępne w udostępnionym repozytorium pod adresem \url{gry.pl}.
+Aby zreprodukować wyniki należy wykonać polecenie \texttt{./scripts/run\_all\_experiments.sh
+}. Wymagane pakiety oraz dane pobrane zostaną automatycznie.
 
-% Kluczowe wersje bibliotek:
-% \begin{itemize}
-%   \item Python 3.11
-%   \item PyTorch 2.10, TorchVision 0.25
-%   \item PyTorch Lightning 2.6
-%   \item TorchMetrics 1.x
-%   \item NumPy 2.4, Matplotlib 3.x
-% \end{itemize}
 
 % \section{Generowanie tabel i wykresów}
 

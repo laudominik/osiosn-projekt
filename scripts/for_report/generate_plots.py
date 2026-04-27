@@ -16,16 +16,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-# ─── paths ────────────────────────────────────────────────────────────────────
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
 FIGURES_DIR = Path(__file__).resolve().parents[1] / "report" / "figures"
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
-# allow importing load_data from generate_tables
 sys.path.insert(0, str(Path(__file__).parent))
 from generate_tables import load_data  # noqa: E402
 
-# ─── style ────────────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family": "serif",
     "font.size": 11,
@@ -48,19 +45,6 @@ def save_fig(name: str):
     plt.close()
 
 
-def _m(entry, key, scale=1.0):
-    """Extract metric from entry supporting both old and new (noisy/clean) formats."""
-    if "metrics" in entry:
-        v = entry["metrics"].get(key)
-        return v * scale if v is not None else None
-    # new format: prefer noisy, fall back to clean
-    for tag in ("noisy", "clean"):
-        m = entry.get(tag)
-        if m and key in m:
-            return m[key] * scale
-    return None
-
-
 def _m_pair(entry, key, scale=1.0):
     """Return (noisy_val, clean_val) for an entry, or (val, None) in old format."""
     if "metrics" in entry:
@@ -69,19 +53,6 @@ def _m_pair(entry, key, scale=1.0):
     vn = (entry.get("noisy") or {}).get(key)
     vc = (entry.get("clean") or {}).get(key)
     return (vn * scale if vn is not None else None), (vc * scale if vc is not None else None)
-
-
-def _bl(d, key, scale=1.0):
-    """Get baseline metric from either old or new format."""
-    bl = d["baseline"]
-    if "metrics" in bl:
-        v = bl["metrics"].get(key)
-        return v * scale if v is not None else None
-    for tag in ("noisy", "clean"):
-        m = bl.get(tag)
-        if m and key in m:
-            return m[key] * scale
-    return None
 
 
 def _bl_pair(d, key, scale=1.0):
@@ -94,11 +65,6 @@ def _bl_pair(d, key, scale=1.0):
     return (vn * scale if vn is not None else None), (vc * scale if vc is not None else None)
 
 
-# ─── 1. Training curves ───────────────────────────────────────────────────────
-
-# ─── 1. Training curves ───────────────────────────────────────────────────────
-
-# ─── 1. Training curves ───────────────────────────────────────────────────────
 
 def plot_training_curves(d: dict):
     def _load_hist(name):
@@ -116,7 +82,6 @@ def plot_training_curves(d: dict):
                 print(f"  ⚠  Błąd czytania pliku {p}: {e}")
         return None
 
-    # Zdefiniuj listę modeli, dla których chcesz krzywe treningowe.
     models_to_plot = [
         ("baseline", "Baseline - finetuning"),
         # ("best_etap7", "Etap 7 – najlepszy zoptymalizowany model"),
@@ -128,14 +93,12 @@ def plot_training_curves(d: dict):
         hn = _load_hist(f"{base_name}_noisy")
         hc = _load_hist(f"{base_name}_clean")
 
-        # Fallback na d (example_results) jeśli nie znalazło plików
         if not hn and not hc and d.get("_source") == "example":
             if base_name in d and "training_history" in d[base_name]:
                 hn = d[base_name]["training_history"]
             elif base_name == "baseline" and "training_history" in d.get("baseline", {}):
                 hn = d["baseline"]["training_history"]
 
-        # Jeśli po tym wszystkim dalej nie ma historii - wypluj błąd
         if not hn and not hc:
             print(f"  ⚠  Brak danych training_history dla {base_name}_noisy/clean. Pomijam rysowanie krzywych dla tego modelu.")
             continue
@@ -145,7 +108,6 @@ def plot_training_curves(d: dict):
         def _plot_curves(h, suffix, c_train, c_val, m_train, m_val):
             if not h: return
             
-            # Zabezpieczenie przed pustymi listami
             epochs = h.get("epochs", list(range(1, len(h.get("train_loss", [])) + 1)))
             
             if "train_loss" in h and "val_loss" in h and len(h["train_loss"]) > 0:
@@ -180,7 +142,6 @@ def plot_training_curves(d: dict):
         
         save_fig(f"training_curves_{base_name}")
 
-# ─── 2. Pruning accuracy–sparsity tradeoff ────────────────────────────────────
 
 def plot_pruning_tradeoff(d: dict):
     exps   = d["pruning_experiments"]
@@ -235,8 +196,6 @@ def plot_pruning_tradeoff(d: dict):
     plt.tight_layout()
     save_fig("pruning_accuracy_tradeoff")
 
-
-# ─── 3. Model size comparison ─────────────────────────────────────────────────
 
 def plot_model_size(d: dict):
     source = d.get("_source", "example")
