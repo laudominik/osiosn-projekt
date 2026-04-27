@@ -32,7 +32,7 @@ uv run python scripts/train_pruning_and_quant.py
 
 # Etap 7 – hyperparameter search
 echo -e "\n[5/6] Etap 7 - Hyperparameter experiments"
-uv run python scripts/train_etap7.py all
+uv run python scripts/hyperopt.py all
 
 # Generate report assets
 echo -e "\n[6/6] Generating LaTeX tables and plots"

@@ -149,12 +149,16 @@ class WasteSortingDataModule(pl.LightningDataModule):
             self.train_dataset = _TransformDataset(train_sub, self.transform_train)
             self.val_dataset   = _TransformDataset(val_sub,   self.transform_eval)
 
-        # if stage in ("test", None):
+
+        if stage in ("test", "fit", None):
             test = datasets.CIFAR100(self.data_dir, train=False)
             test = self._filter_and_remap(test)
             self.test_dataset = _TransformDataset(test, self.transform_eval)
 
-        print("Split SZ:", len(self.train_dataset), len(self.val_dataset), len(self.test_dataset))
+        print("Split SZ:",
+              len(self.train_dataset) if hasattr(self, "train_dataset") else "-",
+              len(self.val_dataset)   if hasattr(self, "val_dataset")   else "-",
+              len(self.test_dataset)  if hasattr(self, "test_dataset")  else "-")
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size,

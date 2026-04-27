@@ -235,15 +235,15 @@ Po filtrowaniu i podziale:
 \end{itemize}
 
 Musimy zaznaczyć, że uczyć oraz porównywać efekty będziemy zarówno z zaszumionymi danymi treningowymi
-(czyli z powyższymi N1, N2 i N3) jak i bez nich. Wyniki z szumem oznaczać będziemy indeksem N.
+(czyli z powyższymi N1, N2 i N3) jak i bez nich.
 
 % % =============================================================================
 \section{Baseline}
 \label{sec:etap4}
 
-\subsection{Finetuning}
+\subsection{Trening}
 
-Procedura polegać będzie na:
+Finetuning modelu polegać będzie na:
 \begin{enumerate}
   \item \textbf{Zamrożeniu} wszystkich warstw cech
         MobileNetV2 - wagi backbone nie są aktualizowane.
@@ -254,7 +254,7 @@ Procedura polegać będzie na:
 
 W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
 
-\subsubsection*{Trening}
+\subsubsection*{Szczegóły}
 \begin{itemize}
   \item Loss: \textbf{CrossEntropyLoss}
   \item Optimizer: \textbf{Adam}, lr=$10^{-4}$
@@ -264,27 +264,29 @@ W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
   \item Rozmiar minibatchy: 64 próbki
 \end{itemize}
 
-\subsection{Wyniki baseline}
+\subsection{Wyniki}
 
 \input{tables/baseline.tex}
 
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=\linewidth]{figures/training_curves.pdf}
-%   \caption{Krzywe uczenia modelu odniesienia (10 epok). Widoczna różnica między
-%     dokładnością treningową ($\approx65$\%) a walidacyjną ($\approx87$\%) wynika
-%     z 50\% szumu etykiet w zbiorze treningowym.}
-%   \label{fig:training-curves}
-% \end{figure}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/training_curves_baseline.pdf}
+  \caption{Krzywe uczenia baseline'u (10 epok). Widoczna są różnice między sytuacją, w której
+  trenujemy z danymi zaszumionymi (training loss znacznie wyższy niż val loss).}
+  \label{fig:training-curves}
+\end{figure}
 
-% \subsection{Interpretacja wyników}
+\subsection{Obserwacje}
 
-% Niska dokładność treningowa ($\approx$65\%) przy wysokiej walidacyjnej
-% ($\approx$87\%) jest oczekiwanym efektem zastosowania 50\% szumu etykiet.
-% Model uczy się na częściowo błędnych sygnałach, jednak dzięki zamrożonemu
-% backbone z bogatymi cechami potrafi generalizować na czystych danych.
-% Dokładność testowa 87.2\% przy 3 klasach potwierdza skuteczność podejścia
-% transfer learning.
+Istnieje zauważalna różnica między zbieżnością w przypadku wprowadzenia do zbioru treningowego szumu a 
+zaniechania tego. W pierwszej sytuacji model osiąga $F1 \approx 85\%$, w drugiej o 5 p.p. więcej, bo aż $F1 \approx 90$.
+Ogólnie można powiedziec, że w obu tych sytuacjach model osiągnął wysoką dokładność ( niż
+na CIFAR-100 MobileNetV2 osiąga bez ograniczenia liczby klas $F1 \approx 73\%$ a więc i w tym aspekcie nastąpiła poprawa)
+a więc i przyjęty przez nas schemat uczenia modelu odniesienia przyjmujemy za właściwy.
+
+Warto zwrócić uwagę na niską dokładność treningową ($\approx 47 \%$) dla zaszumionego zbioru treningowego, co znacząco odbiega
+od dokładności na zbiorze walidacyjnym i testowym. Zgodnie z oczekiwaniami i znanymi rezultatami z dziedziny, nawet przy mocnym zaszumieniu
+model jest w stanie nauczyć się użytecznych cech \cite{szczuko2022osiosn}.
 
 % % =============================================================================
 % \section{Przerzedzanie modelu (Etap~5)}

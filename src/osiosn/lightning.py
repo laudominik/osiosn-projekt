@@ -10,12 +10,6 @@ from torch.optim.lr_scheduler import (
 
 
 class WasteSortingModule(pl.LightningModule):
-    """
-    MobileNetV2 x0.75 (pretrained CIFAR-100) fine-tuned for 3-class waste sorting.
-
-    Supports configurable optimizer, LR scheduler, dropout and weight decay
-    for Etap 7 hyperparameter experiments.
-    """
 
     def __init__(
         self,

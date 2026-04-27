@@ -70,12 +70,19 @@ ALL_GROUPS = {
 
 # ── runner ────────────────────────────────────────────────────────────────────
 
-def run_experiment(cfg: dict):
-    exp_id = cfg["id"]
-    aug    = cfg["augmentation"]
+NOISE_VARIANTS = [
+    ("noisy", 0.5, 0.1),
+    ("clean", 0.0, 0.0),
+]
+
+
+def run_experiment(cfg: dict, noise_tag: str, noise_rate: float, p_dog: float):
+    base_id = cfg["id"]
+    exp_id  = f"{base_id}_{noise_tag}"
+    aug     = cfg["augmentation"]
     print(f"\n{'='*60}\nExperiment: {exp_id}\n{'='*60}")
 
-    dm = WasteSortingDataModule(batch_size=BATCH, noise_rate=0.5, p_dog=0.1,
+    dm = WasteSortingDataModule(batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog,
                                 augmentation=aug, seed=SEED)
     dm.prepare_data()
     dm.setup(stage="fit")
@@ -94,7 +101,10 @@ def run_experiment(cfg: dict):
     trainer, model = train(model, dm, ckpt_prefix=exp_id, max_epochs=EPOCHS)
     metrics = extract_trainer_metrics(trainer)
 
-    save_results(exp_id, metrics, config={**cfg, "epochs": EPOCHS, "batch_size": BATCH})
+    save_results(exp_id, metrics, config={
+        **cfg, "epochs": EPOCHS, "batch_size": BATCH,
+        "noise_rate": noise_rate, "p_dog": p_dog,
+    })
 
 
 def main():
@@ -108,8 +118,9 @@ def main():
         print(f"Unknown group '{group}'. Choose from: {list(ALL_GROUPS)} or 'all'")
         sys.exit(1)
 
-    for cfg in experiments:
-        run_experiment(cfg)
+    for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
+        for cfg in experiments:
+            run_experiment(cfg, noise_tag, noise_rate, p_dog)
 
 
 if __name__ == "__main__":
