@@ -1,0 +1,333 @@
+{
+  "model_profile": {
+    "name": "MobileNetV2 x0.75 (CIFAR-100 pretrained)",
+    "total_params": 2476228,
+    "size_mb": 9.44,
+    "inference_cpu_ms": 15.8,
+    "inference_gpu_ms": 1.2,
+    "epoch_time_s": 22.3,
+    "peak_memory_mb": 289.4
+  },
+  "baseline": {
+    "id": "baseline",
+    "name": "Model odniesienia (Baseline)",
+    "etap": 4,
+    "config": {
+      "epochs": 10,
+      "batch_size": 64,
+      "lr": 1e-4,
+      "optimizer": "adam",
+      "scheduler": "cosine_warm_restarts",
+      "augmentation": "basic",
+      "noise_rate": 0.5,
+      "p_dog": 0.1,
+      "dropout": 0.0,
+      "weight_decay": 0.0,
+      "frozen_layers": "all_features"
+    },
+    "metrics": {
+      "test_acc": 0.872,
+      "test_f1": 0.869,
+      "val_acc_best": 0.874,
+      "total_params": 2476228,
+      "nonzero_params": 2476228,
+      "sparsity": 0.0,
+      "size_mb": 9.44,
+      "inference_cpu_ms": 15.8,
+      "inference_gpu_ms": 1.2,
+      "epoch_time_s": 22.3,
+      "peak_memory_mb": 289.4
+    },
+    "training_history": {
+      "epochs": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "train_loss": [0.893, 0.821, 0.792, 0.779, 0.772, 0.767, 0.763, 0.760, 0.758, 0.756],
+      "val_loss":   [0.543, 0.502, 0.487, 0.478, 0.472, 0.468, 0.465, 0.463, 0.462, 0.461],
+      "train_acc":  [0.583, 0.617, 0.634, 0.641, 0.645, 0.648, 0.651, 0.653, 0.654, 0.656],
+      "val_acc":    [0.812, 0.832, 0.843, 0.852, 0.858, 0.862, 0.866, 0.869, 0.872, 0.874],
+      "epoch_time_s": [21.8, 22.1, 22.3, 22.5, 22.4, 22.2, 22.3, 22.1, 22.4, 22.3]
+    }
+  },
+  "pruning_experiments": [
+    {
+      "id": "prune_unstruct_10",
+      "name": "Pruning niestrukturalne L1 (10%)",
+      "method": "unstructured",
+      "sparsity": 0.10,
+      "metrics": {
+        "test_acc": 0.871, "test_f1": 0.868,
+        "nonzero_params": 2228604, "sparsity": 0.10,
+        "size_mb": 9.44, "inference_cpu_ms": 15.9, "epoch_time_s": 22.1
+      }
+    },
+    {
+      "id": "prune_unstruct_30",
+      "name": "Pruning niestrukturalne L1 (30%)",
+      "method": "unstructured",
+      "sparsity": 0.30,
+      "metrics": {
+        "test_acc": 0.866, "test_f1": 0.862,
+        "nonzero_params": 1733360, "sparsity": 0.30,
+        "size_mb": 9.44, "inference_cpu_ms": 16.1, "epoch_time_s": 22.3
+      }
+    },
+    {
+      "id": "prune_unstruct_50",
+      "name": "Pruning niestrukturalne L1 (50%)",
+      "method": "unstructured",
+      "sparsity": 0.50,
+      "metrics": {
+        "test_acc": 0.855, "test_f1": 0.850,
+        "nonzero_params": 1238114, "sparsity": 0.50,
+        "size_mb": 9.44, "inference_cpu_ms": 16.4, "epoch_time_s": 22.5
+      }
+    },
+    {
+      "id": "prune_unstruct_70",
+      "name": "Pruning niestrukturalne L1 (70%)",
+      "method": "unstructured",
+      "sparsity": 0.70,
+      "metrics": {
+        "test_acc": 0.834, "test_f1": 0.828,
+        "nonzero_params": 742868, "sparsity": 0.70,
+        "size_mb": 9.44, "inference_cpu_ms": 16.7, "epoch_time_s": 22.8
+      }
+    },
+    {
+      "id": "prune_unstruct_90",
+      "name": "Pruning niestrukturalne L1 (90%)",
+      "method": "unstructured",
+      "sparsity": 0.90,
+      "metrics": {
+        "test_acc": 0.781, "test_f1": 0.774,
+        "nonzero_params": 247623, "sparsity": 0.90,
+        "size_mb": 9.44, "inference_cpu_ms": 17.1, "epoch_time_s": 23.1
+      }
+    },
+    {
+      "id": "prune_struct_10",
+      "name": "Pruning strukturalne LN (10%)",
+      "method": "structured",
+      "sparsity": 0.10,
+      "metrics": {
+        "test_acc": 0.869, "test_f1": 0.865,
+        "nonzero_params": 2228604, "sparsity": 0.10,
+        "size_mb": 8.51, "inference_cpu_ms": 14.2, "epoch_time_s": 20.1
+      }
+    },
+    {
+      "id": "prune_struct_30",
+      "name": "Pruning strukturalne LN (30%)",
+      "method": "structured",
+      "sparsity": 0.30,
+      "metrics": {
+        "test_acc": 0.852, "test_f1": 0.847,
+        "nonzero_params": 1733360, "sparsity": 0.30,
+        "size_mb": 6.61, "inference_cpu_ms": 11.3, "epoch_time_s": 16.4
+      }
+    },
+    {
+      "id": "prune_struct_50",
+      "name": "Pruning strukturalne LN (50%)",
+      "method": "structured",
+      "sparsity": 0.50,
+      "metrics": {
+        "test_acc": 0.831, "test_f1": 0.825,
+        "nonzero_params": 1238114, "sparsity": 0.50,
+        "size_mb": 4.72, "inference_cpu_ms": 8.4, "epoch_time_s": 12.8
+      }
+    },
+    {
+      "id": "prune_struct_70",
+      "name": "Pruning strukturalne LN (70%)",
+      "method": "structured",
+      "sparsity": 0.70,
+      "metrics": {
+        "test_acc": 0.793, "test_f1": 0.786,
+        "nonzero_params": 742868, "sparsity": 0.70,
+        "size_mb": 2.83, "inference_cpu_ms": 5.7, "epoch_time_s": 8.9
+      }
+    }
+  ],
+  "quantization_experiments": [
+    {
+      "id": "quant_ptq_dynamic",
+      "name": "PTQ dynamiczna (INT8)",
+      "method": "ptq_dynamic",
+      "metrics": {
+        "test_acc": 0.871, "test_f1": 0.868,
+        "total_params": 2476228, "sparsity": 0.0,
+        "size_mb": 2.36, "inference_cpu_ms": 5.2
+      }
+    },
+    {
+      "id": "quant_qat",
+      "name": "QAT (INT8)",
+      "method": "qat",
+      "metrics": {
+        "test_acc": 0.873, "test_f1": 0.870,
+        "total_params": 2476228, "sparsity": 0.0,
+        "size_mb": 2.38, "inference_cpu_ms": 5.1
+      }
+    },
+    {
+      "id": "prune50_quant_ptq",
+      "name": "Pruning 50% niestrukturalne + PTQ INT8",
+      "method": "pruning_ptq",
+      "metrics": {
+        "test_acc": 0.849, "test_f1": 0.843,
+        "nonzero_params": 1238114, "sparsity": 0.50,
+        "size_mb": 1.19, "inference_cpu_ms": 2.9
+      }
+    },
+    {
+      "id": "prune50_struct_quant_ptq",
+      "name": "Pruning strukturalne 50% + PTQ INT8",
+      "method": "struct_pruning_ptq",
+      "metrics": {
+        "test_acc": 0.826, "test_f1": 0.819,
+        "nonzero_params": 1238114, "sparsity": 0.50,
+        "size_mb": 1.19, "inference_cpu_ms": 2.4
+      }
+    }
+  ],
+  "etap7_experiments": {
+    "augmentation": [
+      {
+        "id": "aug_none",
+        "name": "Brak augmentacji",
+        "strategy": "none",
+        "metrics": {"test_acc": 0.831, "test_f1": 0.825}
+      },
+      {
+        "id": "aug_basic",
+        "name": "Podstawowa (crop + flip)",
+        "strategy": "basic",
+        "metrics": {"test_acc": 0.872, "test_f1": 0.869}
+      },
+      {
+        "id": "aug_standard",
+        "name": "Standardowa (+ ColorJitter + Grayscale)",
+        "strategy": "standard",
+        "metrics": {"test_acc": 0.878, "test_f1": 0.875}
+      },
+      {
+        "id": "aug_aggressive",
+        "name": "Agresywna (+ Rotate + Perspective)",
+        "strategy": "aggressive",
+        "metrics": {"test_acc": 0.867, "test_f1": 0.863}
+      }
+    ],
+    "optimizer": [
+      {
+        "id": "opt_adam",
+        "name": "Adam (lr=1e-4)",
+        "optimizer": "adam",
+        "metrics": {"test_acc": 0.872, "test_f1": 0.869}
+      },
+      {
+        "id": "opt_adamw_1e4",
+        "name": "AdamW (lr=1e-4, wd=1e-4)",
+        "optimizer": "adamw",
+        "weight_decay": 1e-4,
+        "metrics": {"test_acc": 0.876, "test_f1": 0.873}
+      },
+      {
+        "id": "opt_adamw_1e3",
+        "name": "AdamW (lr=1e-4, wd=1e-3)",
+        "optimizer": "adamw",
+        "weight_decay": 1e-3,
+        "metrics": {"test_acc": 0.874, "test_f1": 0.871}
+      },
+      {
+        "id": "opt_sgd",
+        "name": "SGD (lr=1e-2, momentum=0.9)",
+        "optimizer": "sgd",
+        "metrics": {"test_acc": 0.861, "test_f1": 0.856}
+      }
+    ],
+    "scheduler": [
+      {
+        "id": "sched_cosine",
+        "name": "CosineAnnealingWarmRestarts",
+        "scheduler": "cosine",
+        "metrics": {"test_acc": 0.872, "test_f1": 0.869}
+      },
+      {
+        "id": "sched_plateau",
+        "name": "ReduceLROnPlateau",
+        "scheduler": "plateau",
+        "metrics": {"test_acc": 0.868, "test_f1": 0.864}
+      },
+      {
+        "id": "sched_onecycle",
+        "name": "OneCycleLR",
+        "scheduler": "onecycle",
+        "metrics": {"test_acc": 0.875, "test_f1": 0.872}
+      },
+      {
+        "id": "sched_step",
+        "name": "StepLR (step=5, gamma=0.1)",
+        "scheduler": "step",
+        "metrics": {"test_acc": 0.862, "test_f1": 0.857}
+      }
+    ],
+    "dropout": [
+      {
+        "id": "dropout_0",
+        "name": "Dropout p=0.0 (baseline)",
+        "dropout": 0.0,
+        "metrics": {"test_acc": 0.872, "test_f1": 0.869}
+      },
+      {
+        "id": "dropout_01",
+        "name": "Dropout p=0.1",
+        "dropout": 0.1,
+        "metrics": {"test_acc": 0.875, "test_f1": 0.872}
+      },
+      {
+        "id": "dropout_03",
+        "name": "Dropout p=0.3",
+        "dropout": 0.3,
+        "metrics": {"test_acc": 0.870, "test_f1": 0.867}
+      },
+      {
+        "id": "dropout_05",
+        "name": "Dropout p=0.5",
+        "dropout": 0.5,
+        "metrics": {"test_acc": 0.861, "test_f1": 0.856}
+      }
+    ],
+    "best_model": {
+      "id": "best_etap7",
+      "name": "Najlepszy (AdamW + OneCycleLR + standardowa aug. + dropout=0.1)",
+      "config": {
+        "optimizer": "adamw", "weight_decay": 1e-4,
+        "scheduler": "onecycle",
+        "augmentation": "standard",
+        "dropout": 0.1
+      },
+      "metrics": {
+        "test_acc": 0.883, "test_f1": 0.880,
+        "total_params": 2476228, "sparsity": 0.0,
+        "size_mb": 9.44, "inference_cpu_ms": 15.8
+      }
+    },
+    "best_optimized": {
+      "id": "best_pruned_quant",
+      "name": "Najlepszy + Pruning struct. 30% + PTQ INT8",
+      "config": {
+        "optimizer": "adamw", "weight_decay": 1e-4,
+        "scheduler": "onecycle",
+        "augmentation": "standard",
+        "dropout": 0.1,
+        "pruning": "structured_30",
+        "quantization": "ptq_dynamic"
+      },
+      "metrics": {
+        "test_acc": 0.858, "test_f1": 0.854,
+        "nonzero_params": 1733360, "sparsity": 0.30,
+        "size_mb": 1.67, "inference_cpu_ms": 3.9
+      }
+    }
+  }
+}

@@ -1,15 +1,18 @@
 [project]
 name = "osiosn-projekt"
 version = "0.1.0"
-description = "Add your description here"
+description = "Optymalizacja struktur i obliczen w sieciach neuronowych – klasyfikator segregacji odpadow"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aim>=3.29.1",
+    "matplotlib>=3.9.0",
     "numpy>=2.4.3",
-    "pytorch-lightning>=2.6.1",
-    "torch>=2.10.0",
-    "torchvision>=0.25.0",
-    "setuptools==80.0.0",
     "pandas>=3.0.1",
+    "pytorch-lightning>=2.6.1",
+    "scikit-learn>=1.6.0",
+    "setuptools==80.0.0",
+    "torch>=2.10.0",
+    "torchmetrics>=1.6.0",
+    "torchvision>=0.25.0",
 ]

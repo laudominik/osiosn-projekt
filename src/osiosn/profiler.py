@@ -1,66 +1,97 @@
-import torch
-import time
+"""Model profiling: parameters, size, inference time, training memory."""
 import os
+import time
 from copy import deepcopy
 
-def profile(model_module, datamodule):
-    device_gpu = torch.device("cuda")
-    device_cpu = torch.device("cpu")
+import torch
+import torch.nn as nn
 
-    results = {}
-    model = model_module.model
+
+def _best_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return None
+
+
+def profile(model_module, datamodule) -> dict:
+    """
+    Profile model_module.model and return a dict of key metrics.
+    datamodule must have batch_size=1 for single-sample inference measurement.
+    """
     if datamodule.batch_size != 1:
-        raise ValueError("Batch size is not 1, the results will be unrealistic!")
+        raise ValueError("Set batch_size=1 for profiling so inference time is per-sample.")
 
+    model = model_module.model
+    results = {}
+
+    # --- parameter count ---
     total_params = sum(p.numel() for p in model.parameters())
-    
-    temp_path = "temp_model.pth"
-    torch.save(model.state_dict(), temp_path)
-    file_size_mb = os.path.getsize(temp_path) / (1024 * 1024)
-    os.remove(temp_path)
+    nonzero_params = sum(p.nonzero().shape[0] for p in model.parameters())
+    results["total_params"] = total_params
+    results["nonzero_params"] = nonzero_params
+    results["sparsity"] = 1.0 - nonzero_params / total_params
 
-    print(f"--- Model profile ---")
-    print(f"Total parameters: {total_params:,}")
-    print(f"Checkpoint size: {file_size_mb:.2f} MB")
+    # --- file size (FP32 weights only) ---
+    tmp = "/tmp/_profile_model.pth"
+    torch.save(model.state_dict(), tmp)
+    results["size_mb"] = os.path.getsize(tmp) / (1024 ** 2)
+    os.remove(tmp)
 
+    print(f"\n{'─'*40}")
+    print(f"  Total params   : {total_params:,}")
+    print(f"  Non-zero params: {nonzero_params:,}  (sparsity={results['sparsity']:.1%})")
+    print(f"  Checkpoint size: {results['size_mb']:.2f} MB")
+
+    # --- prepare a single test batch ---
     datamodule.setup(stage="test")
     batch = next(iter(datamodule.test_dataloader()))
-    inputs, _ = batch
-    batch_size = inputs.size(0)
+    x_cpu, _ = batch
 
-    def measure_inference(target_device):
-        m = deepcopy(model).to(target_device)
-        m.eval()
-        x = inputs.to(target_device)
-        
-        # WARMUP for hot cache!!
+    def _measure(device, x):
+        m = deepcopy(model).to(device).eval()
+        xi = x.to(device)
         with torch.no_grad():
-            for _ in range(10): _ = m(x)
-        
-        start = time.perf_counter()
+            for _ in range(20):          # warm-up
+                _ = m(xi)
+        t0 = time.perf_counter()
         with torch.no_grad():
-            for _ in range(50): _ = m(x)
-        end = time.perf_counter()
-        
-        avg_time = (end - start) / 50
-        return avg_time
+            for _ in range(100):
+                _ = m(xi)
+        return (time.perf_counter() - t0) / 100 * 1000  # ms
 
-    inf_cpu = measure_inference(device_cpu)
-    print(f"\n--- Inference time (CPU): {inf_cpu:.4f} s")
-    inf_gpu = measure_inference(device_gpu)
-    print(f"Inference time (GPU): {inf_gpu:.4f} s")
-    
-    torch.cuda.reset_peak_memory_stats()
-    model_gpu = deepcopy(model).to(device_gpu)
-    model_gpu.train()
-    
-    optimizer = torch.optim.Adam(model_gpu.parameters())
-    x, y = inputs.to(device_gpu), torch.zeros(batch_size, dtype=torch.long).to(device_gpu)
-    
-    outputs = model_gpu(x)
-    loss = torch.nn.functional.cross_entropy(outputs, y)
-    loss.backward()
-    optimizer.step()
-    
-    peak_mem = torch.cuda.max_memory_allocated() / (1024 * 1024)
-    print(f"Peak VRAM use: {peak_mem:.2f} MB")
+    # CPU inference
+    cpu_ms = _measure(torch.device("cpu"), x_cpu)
+    results["inference_cpu_ms"] = cpu_ms
+    print(f"  Inference CPU  : {cpu_ms:.2f} ms/sample")
+
+    # GPU inference (optional)
+    accel = _best_device()
+    if accel is not None and str(accel) != "cpu":
+        gpu_ms = _measure(accel, x_cpu)
+        results["inference_gpu_ms"] = gpu_ms
+        print(f"  Inference {str(accel).upper():<4} : {gpu_ms:.2f} ms/sample")
+    else:
+        results["inference_gpu_ms"] = None
+        print("  Inference GPU  : N/A (no CUDA/MPS)")
+
+    # --- training memory (GPU only) ---
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        m = deepcopy(model).cuda().train()
+        opt = torch.optim.Adam(m.parameters())
+        xb = x_cpu.cuda()
+        yb = torch.zeros(xb.shape[0], dtype=torch.long).cuda()
+        out = m(xb)
+        nn.functional.cross_entropy(out, yb).backward()
+        opt.step()
+        peak_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+        results["peak_memory_mb"] = peak_mb
+        print(f"  Peak VRAM      : {peak_mb:.1f} MB")
+    else:
+        results["peak_memory_mb"] = None
+        print("  Peak VRAM      : N/A")
+
+    print(f"{'─'*40}\n")
+    return results

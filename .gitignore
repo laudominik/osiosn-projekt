@@ -12,3 +12,12 @@ wheels/
 checkpoints
 lightning_logs
 data
+report/figures/
+report/tables
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.pdf
