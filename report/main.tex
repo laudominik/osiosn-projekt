@@ -63,15 +63,15 @@
 \maketitle
 
 \begin{abstract}
-Projekt dotyczy budowy i optymalizacji klasyfikatora odpadów na
-potrzeby wbudowanego inteligentnego kosza na śmieci.
+Projekt dotyczy budowy i optymalizacji klasyfikatora odpadów na potrzeby
+inteligentnego kosza na śmieci.
 Jako model bazowy zastosowano MobileNetV2~x0.75 wytrenowany na zbiorze
 CIFAR-100, który następnie dostosowano metodą \textit{transfer learning} do
 3-klasowego zadania rozróżniania odpadów: recyclable, bio oraz
 electrical\_waste.
 Przebadano przerzedzanie modelu (unstructured i structured channel pruning),
-kwantyzację (PTQ dynamiczna INT8, QAT FX statyczna INT8) oraz optymalizację
-procesu uczenia (augmentacja danych, dropout, optymalizatory Adam/AdamW/SGD,
+kwantyzację (PTQ dynamiczna INT8, QAT FX statyczna INT8)\cite{pytorch2020quantization}
+oraz optymalizację procesu uczenia (augmentacja danych, dropout, optymalizatory Adam/AdamW/SGD,
 harmonogramy LR).
 Model finalny łączy przerzedzanie strukturalne 15\% kanałów z doszkalaniem
 kwantyzacyjnym (QAT FX INT8) i optymalnymi hiperparametrami, osiągając
@@ -218,7 +218,7 @@ Do każdego obrazu podczas ładowania dodawany jest szum:
 
 \paragraph{N3. Zamiana obrazka na zdjęcie psa}
 Dla 10\% próbek treningowych (wybieranych losowo przy \texttt{seed=42})
-pikselowe dane obrazu zastępowane są obrazem psa (tzw. dogifikacja) z klasy CIFAR-100 nr~35, 
+pikselowe dane obrazu zastępowane są obrazem psa (tzw. dogifikacja) z klasy CIFAR-100 nr~35,
 przy zachowaniu oryginalnej etykiety kategorii śmieci:
 \begin{equation}
   \mathcal{P}(x = \text{dog} \mid x^{\text{gt}}) = 0.1
@@ -271,7 +271,7 @@ W ten sposób unikniemy katastrofalnego zapominania i przeuczania.
 
 \subsection{Obserwacje}
 
-Zgodnie z Tab. \ref{tab:baseline} istnieje zauważalna różnica między zbieżnością w przypadku wprowadzenia do zbioru treningowego szumu a 
+Zgodnie z Tab. \ref{tab:baseline} istnieje zauważalna różnica między zbieżnością w przypadku wprowadzenia do zbioru treningowego szumu a
 zaniechania tego. W pierwszej sytuacji model osiąga $F1 \approx 85\%$, w drugiej o 5 p.p. więcej, bo aż $F1 \approx 90$.
 Ogólnie można powiedziec, że w obu tych sytuacjach model osiągnął wysoką dokładność ( niż
 na CIFAR-100 MobileNetV2 osiąga bez ograniczenia liczby klas $F1 \approx 73\%$ a więc i w tym aspekcie nastąpiła poprawa)
@@ -317,7 +317,7 @@ Do implementacji harmonogramu (.. SCHEDULED) wykorzystujemy następującą techn
 w kolejnej epoce usunięte.
 
 \begin{equation}
-  \text{Prune}_{t+1} = \frac{s_{t+1} - s_{t}}{1 - s_{t}} 
+  \text{Prune}_{t+1} = \frac{s_{t+1} - s_{t}}{1 - s_{t}}
 \end{equation}
 gdzie
 \begin{equation*}
@@ -332,13 +332,13 @@ uległo dokładnie Target wag. Ze względu na stosowanie harmonogramu nie implem
 Sprawdzamy pierw przerzedzanie podczas inferencji (t.j. bez dodatkowego doszkalania). Z Tab. \ref{tab:pruning_inference_time} wynika, że ten sposób bardzo gwałtownie obniża wyniki modelu, ponieważ usunięcie zaledwie $10\%$ filtrów obniża wyniki o ponad 10 p.p..
 
 W przypadku pruningu nieustrukturyzowanego (UNSTRUCTURED ..) wyniki przedstawiono w Tab. \ref{tab:pruning_unstructured}; z racji, że sieci trzymane są w zwykłym \texttt{BLAS}-owym formacie, nie wpływa to
-w żaden sposób na czas inferencji ani na rozmiar sieci. Tego typu pruning wpływa naturalnie na możliwy stopień kompresji (natomiast nie jest to 
+w żaden sposób na czas inferencji ani na rozmiar sieci. Tego typu pruning wpływa naturalnie na możliwy stopień kompresji (natomiast nie jest to
 coś, czego koniecznie potrzebujemy) - długie ciągi zer obniżają entropię pliku co czyni je łatwiejszym do zakodowania RLE czy ANS.
 Wyniki te są oczywiste i zgodne z treścią wykładu. Zwrócimy natomiast uwagę na mniej trywialny rezultat a więc brak różnicy między strategiami pruningu ONESH(OT) i SCHED(ULED).
 Twierdzimy, że w przypadku tego zbioru danych fine-tuning jest w stanie równie dobrze działać przy stopniowym jak i nagłym ucięciu wag, ponieważ rozmiar sieci
 pozostaje i tak stosunkowo duży jak na prostotę zadania oraz dokonujemy go jeszcze przez wiele epok (łącznie 50 epok fine-tuningu).
 
-Aby jednak obserwować korzyści z przerzedzania zastosowaliśmy pruning ustrukturyzowany (STRUCTURED ..), 
+Aby jednak obserwować korzyści z przerzedzania zastosowaliśmy pruning ustrukturyzowany (STRUCTURED ..),
 którego rezultaty przedstawiliśmy w Tab. \ref{tab:pruning_structured}.
 W przypadku tego algorytmu usuwane są całe filtry a więc usuwamy całe macierze gęste, co ma realny wpływ zarówno na spadek czasu inferencji (z 3.26 ms do 2.68 dla STRUCTURED SCHEDULED ze sparsity=50\%, poza tym charakterystyka jest mniej-więcej liniowa co widać na Rys. \ref{fig:pruning-inference}) jak i rozmiaru modelu (z 4.40 MB do 1.52 MB pliku PTH). W tym przypadku
 rozmiary ZIPów nie odbiegają znacząco od rozmiarów plików PTH. Udaje nam się utrzymać akceptowalny poziom $F1 > 0.8$ usuwając do 30 \% wszystkich filtrów (dla danych niezaszumionych, w przypadku szumu usunięcie ok. 20\% daje akceptowalne wyniki).
