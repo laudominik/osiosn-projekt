@@ -9,7 +9,7 @@ from osiosn import (
     train,
 )
 
-EPOCHS = 3  # TODO: Revert to 50
+EPOCHS = 50
 BATCH = 64
 SEED = 42
 
