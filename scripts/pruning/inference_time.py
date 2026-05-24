@@ -41,57 +41,61 @@ def prune_channels(inner_model: torch.nn.Module, desired_sparsity: float) -> Non
     pruner.step()
 
 
-for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
-    ckpts = sorted(glob.glob(f"checkpoints/baseline_{noise_tag}_waste*.ckpt"))
-    if not ckpts:
-        ckpts = sorted(glob.glob("checkpoints/baseline_waste*.ckpt"))
-    if not ckpts:
-        print(f"[{noise_tag}] Brak checkpointu baseline – pomijam.")
-        continue
-    baseline_ckpt = ckpts[-1]
-    print(f"\n[{noise_tag}] Baseline: {baseline_ckpt}")
+def run():
+    for noise_tag, noise_rate, p_dog in NOISE_VARIANTS:
+        ckpts = sorted(glob.glob(f"checkpoints/baseline_{noise_tag}_waste*.ckpt"))
+        if not ckpts:
+            ckpts = sorted(glob.glob("checkpoints/baseline_waste*.ckpt"))
+        if not ckpts:
+            print(f"[{noise_tag}] Brak checkpointu baseline – pomijam.")
+            continue
+        baseline_ckpt = ckpts[-1]
+        print(f"\n[{noise_tag}] Baseline: {baseline_ckpt}")
 
-    for sparsity in SPARSITY_LEVELS:
-        exp_id = f"prune_infer_{int(sparsity * 100):02d}_{noise_tag}"
-        print(f"\n{'=' * 60}\n{exp_id}  (sparsity={sparsity:.0%})\n{'=' * 60}")
+        for sparsity in SPARSITY_LEVELS:
+            exp_id = f"prune_infer_{int(sparsity * 100):02d}_{noise_tag}"
+            print(f"\n{'=' * 60}\n{exp_id}  (sparsity={sparsity:.0%})\n{'=' * 60}")
 
-        model = WasteSortingModule.load_from_checkpoint(baseline_ckpt)
-        model.model.cpu().eval()
+            model = WasteSortingModule.load_from_checkpoint(baseline_ckpt)
+            model.model.cpu().eval()
 
-        before = sum(p.numel() for p in model.model.parameters())
-        prune_channels(model.model, sparsity)
-        after = sum(p.numel() for p in model.model.parameters())
-        print(
-            f"  Params: {before:,} → {after:,}  ({after / before * 100:.1f}% remaining)"
-        )
+            before = sum(p.numel() for p in model.model.parameters())
+            prune_channels(model.model, sparsity)
+            after = sum(p.numel() for p in model.model.parameters())
+            print(
+                f"  Params: {before:,} → {after:,}  ({after / before * 100:.1f}% remaining)"
+            )
 
-        model.eval()
-        dm = WasteSortingDataModule(
-            batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog, seed=SEED
-        )
-        trainer = pl.Trainer(
-            accelerator="auto", devices=1, logger=False, enable_progress_bar=False
-        )
-        results = trainer.test(model, datamodule=dm, verbose=False)
-        metrics = results[0] if results else {}
+            model.eval()
+            dm = WasteSortingDataModule(
+                batch_size=BATCH, noise_rate=noise_rate, p_dog=p_dog, seed=SEED
+            )
+            trainer = pl.Trainer(
+                accelerator="auto", devices=1, logger=False, enable_progress_bar=False
+            )
+            results = trainer.test(model, datamodule=dm, verbose=False)
+            metrics = results[0] if results else {}
 
-        metrics["sparsity_target"] = sparsity
-        metrics["total_params"] = after
-        metrics["nonzero_params"] = after
-        metrics["sparsity"] = 1.0 - after / before
+            metrics["sparsity_target"] = sparsity
+            metrics["total_params"] = after
+            metrics["nonzero_params"] = after
+            metrics["sparsity"] = 1.0 - after / before
 
-        dm_prof = WasteSortingDataModule(batch_size=1, seed=SEED)
-        prof = profile(model, dm_prof)
-        metrics.update(prof)
+            dm_prof = WasteSortingDataModule(batch_size=1, seed=SEED)
+            prof = profile(model, dm_prof)
+            metrics.update(prof)
 
-        save_results(
-            exp_id,
-            metrics,
-            config={
-                "method": "inference_time_structural_magnitude",
-                "sparsity": sparsity,
-                "noise_rate": noise_rate,
-                "p_dog": p_dog,
-                "retrain_epochs": 0,
-            },
-        )
+            save_results(
+                exp_id,
+                metrics,
+                config={
+                    "method": "inference_time_structural_magnitude",
+                    "sparsity": sparsity,
+                    "noise_rate": noise_rate,
+                    "p_dog": p_dog,
+                    "retrain_epochs": 0,
+                },
+            )
+
+if __name__ == "__main__":
+    run()
