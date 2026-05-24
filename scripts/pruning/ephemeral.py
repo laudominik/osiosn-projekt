@@ -30,7 +30,7 @@ def _prune_channels(inner_model: torch.nn.Module, pruning_ratio: float) -> None:
     imp = tp.importance.MagnitudeImportance(p=1)
     pruner = tp.pruner.MagnitudePruner(
         inner_model, EXAMPLE_INPUTS, importance=imp,
-        global_pruning=True, pruning_ratio=pruning_ratio,
+        pruning_ratio=pruning_ratio,
         iterative_steps=1, ignored_layers=[last_linear],
     )
     pruner.step()
