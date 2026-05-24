@@ -1,12 +1,13 @@
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "results"
 
 
-def save_results(experiment_id: str, metrics: dict, config: dict = None, extra: dict = None):
+def save_results(
+    experiment_id: str, metrics: dict, config: dict = None, extra: dict = None
+):
     RESULTS_DIR.mkdir(exist_ok=True)
     path = RESULTS_DIR / f"{experiment_id}.json"
     data = {

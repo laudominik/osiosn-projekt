@@ -1,29 +1,38 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "results"
-TABLES_DIR  = Path(__file__).resolve().parents[2] / "report" / "tables"
+TABLES_DIR = Path(__file__).resolve().parents[2] / "report" / "tables"
 TABLES_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def esc(s: str) -> str:
     return s.replace("%", r"\%").replace("&", r"\&").replace("_", r"\_")
 
+
 def pct(v) -> str:
-    if v is None: return "N/A"
-    return f"{v*100:.1f}\\%"
+    if v is None:
+        return "N/A"
+    return f"{v * 100:.1f}\\%"
+
 
 def pct_coarse(v) -> str:
-    if v is None: return "N/A"
-    return f"{v*100:.1f}\\%"
+    if v is None:
+        return "N/A"
+    return f"{v * 100:.1f}\\%"
+
 
 def num(v, fmt=".2f") -> str:
-    if v is None: return "N/A"
+    if v is None:
+        return "N/A"
     return f"{v:{fmt}}"
+
 
 def write_table(name: str, content: str):
     path = TABLES_DIR / f"{name}.tex"
     path.write_text(content)
     print(f"  ✓  {path.name}")
+
 
 def try_load(exp_id: str) -> dict | None:
     path = RESULTS_DIR / f"{exp_id}.json"
@@ -31,6 +40,7 @@ def try_load(exp_id: str) -> dict | None:
         with open(path) as f:
             return json.load(f)
     return None
+
 
 def load_data() -> dict:
     d: dict = {"_source": "actual"}
@@ -46,29 +56,44 @@ def load_data() -> dict:
     for tag in ("noisy", "clean"):
         b = try_load(f"baseline_{tag}")
         if b and "metrics" in b:
-            d["model_profile"] = {k: b["metrics"].get(k) for k in
-                  ("total_params", "size_mb", "size_zip_mb", "inference_cpu_ms",
-                   "inference_gpu_ms", "epoch_time_s", "peak_memory_mb")}
+            d["model_profile"] = {
+                k: b["metrics"].get(k)
+                for k in (
+                    "total_params",
+                    "size_mb",
+                    "size_zip_mb",
+                    "inference_cpu_ms",
+                    "inference_gpu_ms",
+                    "epoch_time_s",
+                    "peak_memory_mb",
+                )
+            }
             break
 
-    # --- PRUNING (trained) ---
     prune_exps = []
     # Unstructured: runs at high sparsity levels
     unstruct_levels = [50, 70, 80, 90, 95, 99]
     # Structured: runs at lower sparsity levels
-    struct_levels   = [10, 15, 20, 30, 50]
+    struct_levels = [10, 15, 20, 30, 50]
     sparsity_map = {"unstruct": unstruct_levels, "struct": struct_levels}
 
     for p_type in ["unstruct", "struct"]:
         for p_sched in ["o", "s"]:
             for sp in sparsity_map[p_type]:
-                entry = {"type": p_type, "schedule": p_sched, "noisy": None, "clean": None}
+                entry = {
+                    "type": p_type,
+                    "schedule": p_sched,
+                    "noisy": None,
+                    "clean": None,
+                }
                 found = False
                 for tag in ("noisy", "clean"):
                     r = try_load(f"prune_{p_type}_{p_sched}_{sp:02d}_{tag}")
                     if r and "metrics" in r:
                         entry[tag] = r["metrics"]
-                        entry["sparsity"] = r["metrics"].get("sparsity_target", sp / 100)
+                        entry["sparsity"] = r["metrics"].get(
+                            "sparsity_target", sp / 100
+                        )
                         found = True
                 if found:
                     prune_exps.append(entry)
@@ -76,7 +101,7 @@ def load_data() -> dict:
 
     # --- INFERENCE-TIME & EPHEMERAL PRUNING ---
     # inference_time.py uses: [0.10, 0.15, 0.25, 0.30, 0.50, 0.7, 0.9]
-    infer_levels    = [10, 15, 25, 30, 50, 70, 90]
+    infer_levels = [10, 15, 25, 30, 50, 70, 90]
     ephemeral_levels = [10, 15, 25, 30, 50, 70, 90]
     levels_map = {"infer": infer_levels, "ephemeral": ephemeral_levels}
 
@@ -99,7 +124,7 @@ def load_data() -> dict:
     quant_exps = []
     quant_ids = [
         ("quant_ptq_dynamic", "PTQ do INT8"),
-        ("quant_qat_fx",      "QAT do INT8"),
+        ("quant_qat_fx", "QAT do INT8"),
     ]
     for qid, qname in quant_ids:
         entry = {"id": qid, "name": qname, "noisy": None, "clean": None}
@@ -111,7 +136,7 @@ def load_data() -> dict:
             quant_exps.append(entry)
     d["quantization_experiments"] = quant_exps
 
-    # --- MODEL FINALNY ---
+    # MODEL FINALNY
     final_n = try_load("final_noisy")
     final_c = try_load("final_clean")
     d["final"] = {
@@ -119,7 +144,7 @@ def load_data() -> dict:
         "clean": final_c["metrics"] if final_c else None,
     }
 
-    # --- ETAP 7: hyperparameter optimisation ---
+    # ETAP 7: hyperparameter optimisation
     def load_group(mapping):
         rows = []
         for eid, name in mapping:
@@ -132,30 +157,38 @@ def load_data() -> dict:
         return rows
 
     d["etap7_experiments"] = {
-        "augmentation": load_group([
-            ("aug_none",       "Brak"),
-            ("aug_basic",      "Podstawowa"),
-            ("aug_standard",   "Standardowa"),
-            ("aug_aggressive", "Agresywna"),
-        ]),
-        "optimizer": load_group([
-            ("opt_adam",      "Adam"),
-            ("opt_adamw_1e4", "AdamW 1e-4"),
-            ("opt_adamw_1e3", "AdamW 1e-3"),
-            ("opt_sgd",       "SGD"),
-        ]),
-        "scheduler": load_group([
-            ("sched_cosine",   "Cosine"),
-            ("sched_plateau",  "Plateau"),
-            ("sched_onecycle", "OneCycle"),
-            ("sched_step",     "Step"),
-        ]),
-        "dropout": load_group([
-            ("dropout_00", "p=0.0"),
-            ("dropout_01", "p=0.1"),
-            ("dropout_03", "p=0.3"),
-            ("dropout_05", "p=0.5"),
-        ]),
+        "augmentation": load_group(
+            [
+                ("aug_none", "Brak"),
+                ("aug_basic", "Podstawowa"),
+                ("aug_standard", "Standardowa"),
+                ("aug_aggressive", "Agresywna"),
+            ]
+        ),
+        "optimizer": load_group(
+            [
+                ("opt_adam", "Adam"),
+                ("opt_adamw_1e4", "AdamW 1e-4"),
+                ("opt_adamw_1e3", "AdamW 1e-3"),
+                ("opt_sgd", "SGD"),
+            ]
+        ),
+        "scheduler": load_group(
+            [
+                ("sched_cosine", "Cosine"),
+                ("sched_plateau", "Plateau"),
+                ("sched_onecycle", "OneCycle"),
+                ("sched_step", "Step"),
+            ]
+        ),
+        "dropout": load_group(
+            [
+                ("dropout_00", "p=0.0"),
+                ("dropout_01", "p=0.1"),
+                ("dropout_03", "p=0.3"),
+                ("dropout_05", "p=0.5"),
+            ]
+        ),
         "best_model": {
             "noisy": (try_load("best_etap7_noisy") or {}).get("metrics"),
             "clean": (try_load("best_etap7_clean") or {}).get("metrics"),
@@ -167,17 +200,24 @@ def load_data() -> dict:
 def table_model_profile(d: dict):
     p = d.get("model_profile", {})
     rows = [
-        ("Liczba parametrów",      f"{p.get('total_params', 'N/A'):,}" if p.get("total_params") else "N/A"),
-        ("Rozmiar pliku (Pth)",    f"{num(p.get('size_mb'))} MB"),
+        (
+            "Liczba parametrów",
+            f"{p.get('total_params', 'N/A'):,}" if p.get("total_params") else "N/A",
+        ),
+        ("Rozmiar pliku (Pth)", f"{num(p.get('size_mb'))} MB"),
         ("Rozmiar pliku (Zipped)", f"{num(p.get('size_zip_mb'))} MB"),
-        ("Czas wnioskowania CPU",  f"{num(p.get('inference_cpu_ms'))} ms/obraz"),
-        ("Szczytowe użycie VRAM",  f"{num(p.get('peak_memory_mb'), '.0f')} MB"),
+        ("Czas wnioskowania CPU", f"{num(p.get('inference_cpu_ms'))} ms/obraz"),
+        ("Szczytowe użycie VRAM", f"{num(p.get('peak_memory_mb'), '.0f')} MB"),
     ]
     lines = [
-        r"\begin{table}[ht]", r"\centering",
-        r"\caption{Charakterystyka modelu bazowego.}", r"\label{tab:model-profile}",
-        r"\begin{tabular}{ll}", r"\toprule",
-        r"\textbf{Metryka} & \textbf{Wartość} \\", r"\midrule",
+        r"\begin{table}[ht]",
+        r"\centering",
+        r"\caption{Charakterystyka modelu bazowego.}",
+        r"\label{tab:model-profile}",
+        r"\begin{tabular}{ll}",
+        r"\toprule",
+        r"\textbf{Metryka} & \textbf{Wartość} \\",
+        r"\midrule",
     ]
     for k, v in rows:
         lines.append(f"{k} & {v} \\\\")
@@ -187,19 +227,23 @@ def table_model_profile(d: dict):
 
 def table_baseline(d: dict):
     lines = [
-        r"\begin{table*}[ht]", r"\centering",
+        r"\begin{table*}[ht]",
+        r"\centering",
         r"\caption{Wyniki modelu odniesienia (Baseline).}",
-        r"\label{tab:baseline}", r"\begin{tabular}{lrr}", r"\toprule",
-        r"\textbf{Metryka} & \textbf{Z szumem} & \textbf{Czyste} \\", r"\midrule",
+        r"\label{tab:baseline}",
+        r"\begin{tabular}{lrr}",
+        r"\toprule",
+        r"\textbf{Metryka} & \textbf{Z szumem} & \textbf{Czyste} \\",
+        r"\midrule",
     ]
     bl_n = d.get("baseline", {}).get("noisy") or {}
     bl_c = d.get("baseline", {}).get("clean") or {}
     for label, key, fmt in [
-        ("Acc. testowe",        "test_acc",          pct),
-        ("F1-score",            "test_f1",           pct),
-        ("Rozmiar [MB]",        "size_mb",           lambda x: num(x)),
-        ("Rozmiar ZIP [MB]",    "size_zip_mb",       lambda x: num(x)),
-        ("Inferencja CPU [ms]", "inference_cpu_ms",  lambda x: num(x)),
+        ("Acc. testowe", "test_acc", pct),
+        ("F1-score", "test_f1", pct),
+        ("Rozmiar [MB]", "size_mb", lambda x: num(x)),
+        ("Rozmiar ZIP [MB]", "size_zip_mb", lambda x: num(x)),
+        ("Inferencja CPU [ms]", "inference_cpu_ms", lambda x: num(x)),
     ]:
         lines.append(f"{label} & {fmt(bl_n.get(key))} & {fmt(bl_c.get(key))} \\\\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
@@ -211,10 +255,12 @@ def _create_pruning_table(d: dict, p_type: str, table_name: str, caption: str):
     if not exps:
         return
     lines = [
-        r"\begin{table*}[ht]", r"\centering",
+        r"\begin{table*}[ht]",
+        r"\centering",
         r"\caption{" + caption + r"}",
         r"\label{tab:" + table_name + r"}",
-        r"\begin{tabular}{llrrrrrr}", r"\toprule",
+        r"\begin{tabular}{llrrrrrr}",
+        r"\toprule",
         r"\textbf{Harm.} & \textbf{Sparsity} & \textbf{Trening} & \textbf{Acc.} & \textbf{F1} & \textbf{CPU[ms]} & \textbf{ZIP[MB]} & \textbf{PTH[MB]} \\",
         r"\midrule",
     ]
@@ -241,6 +287,7 @@ def _create_pruning_table(d: dict, p_type: str, table_name: str, caption: str):
 def table_pruning_unstructured(d: dict):
     _create_pruning_table(d, "unstruct", "pruning_unstructured", "UNSTRUCTURED")
 
+
 def table_pruning_structured(d: dict):
     _create_pruning_table(d, "struct", "pruning_structured", "STRUCTURED")
 
@@ -250,10 +297,12 @@ def _create_inference_prune_table(d: dict, key: str, table_name: str, caption: s
     if not exps:
         return
     lines = [
-        r"\begin{table*}[ht]", r"\centering",
+        r"\begin{table*}[ht]",
+        r"\centering",
         r"\caption{" + caption + r"}",
         r"\label{tab:" + table_name + r"}",
-        r"\begin{tabular}{lrrrrr}", r"\toprule",
+        r"\begin{tabular}{lrrrrr}",
+        r"\toprule",
         r"\textbf{Sparsity} & \textbf{Trening} & \textbf{Acc.} & \textbf{F1} & \textbf{CPU[ms]} & \textbf{ZIP[MB]} \\",
         r"\midrule",
     ]
@@ -271,12 +320,18 @@ def _create_inference_prune_table(d: dict, key: str, table_name: str, caption: s
 
 
 def table_pruning_inference_time(d: dict):
-    _create_inference_prune_table(d, "pruning_infer", "pruning_inference_time",
-                                  "INFERENCE")
+    _create_inference_prune_table(
+        d, "pruning_infer", "pruning_inference_time", "INFERENCE"
+    )
+
 
 def table_pruning_ephemeral(d: dict):
-    _create_inference_prune_table(d, "pruning_ephemeral", "pruning_ephemeral",
-                                  "Przerzedzanie efemeryczne (odwracalne).")
+    _create_inference_prune_table(
+        d,
+        "pruning_ephemeral",
+        "pruning_ephemeral",
+        "Przerzedzanie efemeryczne (odwracalne).",
+    )
 
 
 def table_quantization(d: dict):
@@ -284,10 +339,12 @@ def table_quantization(d: dict):
     if not exps:
         return
     lines = [
-        r"\begin{table*}[ht]", r"\centering",
+        r"\begin{table*}[ht]",
+        r"\centering",
         r"\caption{Wyniki kwantyzacji – Etap 6.}",
         r"\label{tab:quantization}",
-        r"\begin{tabular}{llrrrrr}", r"\toprule",
+        r"\begin{tabular}{llrrrrr}",
+        r"\toprule",
         r"\textbf{Metoda} & \textbf{Trening} & \textbf{Acc.} & \textbf{F1} & \textbf{CPU[ms]} & \textbf{ZIP[MB]} & \textbf{Size[MB]} \\",
         r"\midrule",
     ]
@@ -308,10 +365,12 @@ def table_quantization(d: dict):
 def _hyperopt_table(rows: list[dict], table_name: str, caption: str, label: str):
     """Generic two-column (noisy/clean) hyperopt comparison table."""
     lines = [
-        r"\begin{table}[ht]", r"\centering",
+        r"\begin{table}[ht]",
+        r"\centering",
         r"\caption{" + caption + r"}",
         r"\label{tab:" + label + r"}",
-        r"\begin{tabular}{lrrrr}", r"\toprule",
+        r"\begin{tabular}{lrrrr}",
+        r"\toprule",
         r"\textbf{Wariant} & \multicolumn{2}{c}{\textbf{Z szumem}} & \multicolumn{2}{c}{\textbf{Czyste}} \\",
         r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
         r" & \textbf{Acc.} & \textbf{F1} & \textbf{Acc.} & \textbf{F1} \\",
@@ -331,42 +390,55 @@ def _hyperopt_table(rows: list[dict], table_name: str, caption: str, label: str)
 
 def table_hyperopt_augmentation(d: dict):
     rows = d.get("etap7_experiments", {}).get("augmentation", [])
-    _hyperopt_table(rows, "hyperopt_augmentation",
-                    "Porównanie strategii augmentacji danych.",
-                    "hyperopt-aug")
+    _hyperopt_table(
+        rows,
+        "hyperopt_augmentation",
+        "Porównanie strategii augmentacji danych.",
+        "hyperopt-aug",
+    )
+
 
 def table_hyperopt_optimizer(d: dict):
     rows = d.get("etap7_experiments", {}).get("optimizer", [])
-    _hyperopt_table(rows, "hyperopt_optimizer",
-                    "Porównanie optymalizatorów.",
-                    "hyperopt-opt")
+    _hyperopt_table(
+        rows, "hyperopt_optimizer", "Porównanie optymalizatorów.", "hyperopt-opt"
+    )
+
 
 def table_hyperopt_scheduler(d: dict):
     rows = d.get("etap7_experiments", {}).get("scheduler", [])
-    _hyperopt_table(rows, "hyperopt_scheduler",
-                    "Porównanie harmonogramów uczenia.",
-                    "hyperopt-sched")
+    _hyperopt_table(
+        rows,
+        "hyperopt_scheduler",
+        "Porównanie harmonogramów uczenia.",
+        "hyperopt-sched",
+    )
+
 
 def table_hyperopt_dropout(d: dict):
     rows = d.get("etap7_experiments", {}).get("dropout", [])
-    _hyperopt_table(rows, "hyperopt_dropout",
-                    "Wpływ współczynnika dropout.",
-                    "hyperopt-dropout")
+    _hyperopt_table(
+        rows, "hyperopt_dropout", "Wpływ współczynnika dropout.", "hyperopt-dropout"
+    )
+
 
 def table_hyperopt_best(d: dict):
     best = d.get("etap7_experiments", {}).get("best_model", {})
     mn = best.get("noisy") or {}
     mc = best.get("clean") or {}
     lines = [
-        r"\begin{table}[ht]", r"\centering",
+        r"\begin{table}[ht]",
+        r"\centering",
         r"\caption{Najlepszy model po optymalizacji hiperparametrów (Etap 7).}",
         r"\label{tab:hyperopt-best}",
-        r"\begin{tabular}{lrr}", r"\toprule",
-        r"\textbf{Metryka} & \textbf{Z szumem} & \textbf{Czyste} \\", r"\midrule",
+        r"\begin{tabular}{lrr}",
+        r"\toprule",
+        r"\textbf{Metryka} & \textbf{Z szumem} & \textbf{Czyste} \\",
+        r"\midrule",
     ]
     for label, key, fmt in [
-        ("Acc. testowe",        "test_acc",         pct),
-        ("F1-score",            "test_f1",          pct),
+        ("Acc. testowe", "test_acc", pct),
+        ("F1-score", "test_f1", pct),
     ]:
         lines.append(f"{label} & {fmt(mn.get(key))} & {fmt(mc.get(key))} \\\\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
@@ -377,24 +449,26 @@ def table_final_comparison(d: dict):
     """Zestawienie: baseline vs PTQ vs QAT vs model finalny."""
     bl_n = d.get("baseline", {}).get("noisy") or {}
     bl_c = d.get("baseline", {}).get("clean") or {}
-    qe   = {e["id"]: e for e in d.get("quantization_experiments", [])}
+    qe = {e["id"]: e for e in d.get("quantization_experiments", [])}
     ptq_n = (qe.get("quant_ptq_dynamic") or {}).get("noisy") or {}
     ptq_c = (qe.get("quant_ptq_dynamic") or {}).get("clean") or {}
     qat_n = (qe.get("quant_qat_fx") or {}).get("noisy") or {}
     qat_c = (qe.get("quant_qat_fx") or {}).get("clean") or {}
-    fn_n  = d.get("final", {}).get("noisy") or {}
-    fn_c  = d.get("final", {}).get("clean") or {}
+    fn_n = d.get("final", {}).get("noisy") or {}
+    fn_c = d.get("final", {}).get("clean") or {}
 
     rows = [
-        ("Baseline",               bl_n,  bl_c),
-        ("\\textbf{Finalny}", fn_n,  fn_c),
+        ("Baseline", bl_n, bl_c),
+        ("\\textbf{Finalny}", fn_n, fn_c),
     ]
 
     lines = [
-        r"\begin{table*}[ht]", r"\centering",
+        r"\begin{table*}[ht]",
+        r"\centering",
         r"\caption{Zestawienie końcowe: baseline vs modele skwantyzowane vs model finalny.}",
         r"\label{tab:final-comparison}",
-        r"\begin{tabular}{lrrrrrrr}", r"\toprule",
+        r"\begin{tabular}{lrrrrrrr}",
+        r"\toprule",
         r"\textbf{Model} & \multicolumn{2}{c}{\textbf{Acc.}} "
         r"& \multicolumn{2}{c}{\textbf{F1}} "
         r"& \textbf{CPU [ms]} & \textbf{PTH [MB]} & \textbf{ZIP [MB]} \\",
