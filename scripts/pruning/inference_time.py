@@ -1,4 +1,5 @@
 import glob
+from osiosn.pruning_ratio import calculate_pruning_ratio
 import torch
 import torch_pruning as tp
 import pytorch_lightning as pl
@@ -17,8 +18,10 @@ NOISE_VARIANTS = [
 ]
 
 
-def prune_channels(inner_model: torch.nn.Module, pruning_ratio: float) -> None:
+def prune_channels(inner_model: torch.nn.Module, desired_sparsity: float) -> None:
     """Physically remove channels; inner_model is modified in-place."""
+    pruning_ratio = calculate_pruning_ratio(desired_sparsity)
+
     for p in inner_model.parameters():
         p.requires_grad_(True)
 

@@ -1,5 +1,6 @@
 import sys
 import glob
+from osiosn.pruning_ratio import calculate_pruning_ratio
 import torch
 import torch_pruning as tp
 
@@ -23,11 +24,13 @@ if len(sys.argv) > 1:
     SPARSITY_LEVELS = [float(sys.argv[1])]
 
 
-def prune_channels(inner_model: torch.nn.Module, pruning_ratio: float) -> None:
+def prune_channels(inner_model: torch.nn.Module, desired_sparsity: float) -> None:
     """
     Physically remove channels/filters using torch-pruning.
     Must unfreeze all params first so the dependency graph can trace grad_fn.
     """
+    pruning_ratio = calculate_pruning_ratio(desired_sparsity)
+
     for p in inner_model.parameters():
         p.requires_grad_(True)
 

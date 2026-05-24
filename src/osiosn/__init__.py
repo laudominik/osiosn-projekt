@@ -4,3 +4,4 @@ from .profiler import profile
 from .results_collector import save_results, load_results, load_example_results, extract_trainer_metrics
 from .tester import test
 from .trainer import train
+from .pruning_ratio import calculate_pruning_ratio

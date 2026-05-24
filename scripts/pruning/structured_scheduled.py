@@ -1,5 +1,6 @@
 import sys
 import glob
+from osiosn.pruning_ratio import calculate_pruning_ratio
 import torch
 import torch_pruning as tp
 
@@ -24,8 +25,10 @@ if len(sys.argv) > 1:
 
 
 def prune_channels_iterative(inner_model: torch.nn.Module,
-                              pruning_ratio: float,
+                              desired_sparsity: float,
                               iterative_steps: int) -> None:
+    pruning_ratio = calculate_pruning_ratio(desired_sparsity)
+
     for p in inner_model.parameters():
         p.requires_grad_(True)
 

@@ -8,6 +8,7 @@ import pytorch_lightning as pl
 
 from osiosn import WasteSortingModule, WasteSortingDataModule, profile
 from osiosn import save_results
+from osiosn import calculate_pruning_ratio
 
 SPARSITY_LEVELS = [0.10, 0.30, 0.50, 0.70, 0.80, 0.90]
 BATCH = 64
@@ -20,7 +21,8 @@ NOISE_VARIANTS = [
 ]
 
 
-def _prune_channels(inner_model: torch.nn.Module, pruning_ratio: float) -> None:
+def _prune_channels(inner_model: torch.nn.Module, desired_sparsity: float) -> None:
+    pruning_ratio = calculate_pruning_ratio(desired_sparsity)
     for p in inner_model.parameters():
         p.requires_grad_(True)
     last_linear = None
