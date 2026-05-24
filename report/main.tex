@@ -534,9 +534,9 @@ Model finalny łączy trzy techniki optymalizacji w jednym potoku:
         Redukuje rozmiar do $\approx$1.2~MB i przyspiesza wnioskowanie
         ponad 2-krotnie względem baseline'u.
 
-  \item \textbf{Optymalne hiperparametry} -- na podstawie wyników
+  \item \textbf{Optymalne hiperparametry} - na podstawie wyników
         etapu~7: augmentacja \emph{standard}, AdamW $\lambda=10^{-4}$,
-        harmonogram cosine - w zasadzie tylko augmentacja okazała się robic róznice.
+        harmonogram cosine - w zasadzie tylko augmentacja okazała się robić różnice.
 \end{enumerate}
 
 Tabela~\ref{tab:final-comparison} zestawia model finalny z baseline'em
@@ -555,7 +555,7 @@ akceptowalne.
 
   \item \textbf{Pruning unstructured} nie zmniejsza rozmiaru pliku ani
         czasu wnioskowania (ze względu na brak obsługi rzadkich danych na GPU); użyteczny
-        wyłącznie przy dedykowanych formatach rzadkich macierzy (co jet nietypowe).
+        wyłącznie przy dedykowanych formatach rzadkich macierzy (co jest nietypowe).
         Pruning typu \textbf{structured} z \texttt{torch-pruning}
         usuwa kanały, dając liniowe przyspieszenie i faktyczną kompresję.
 
@@ -566,7 +566,7 @@ akceptowalne.
 
   \item \textbf{SGD zawodzi} przy silnym szumie etykiet
         (64.3\% vs.\ 85\% dla Adam) - nie ma mechanizmu tłumienia
-        szumu gradientu za pomocą inercji procesu optymalizacji.
+        szumu gradientu za pomocą inercji (momentu) procesu optymalizacji.
 
   \item \textbf{OneCycleLR} daje najlepsze wyniki dla czystych danych
         (91.1\%), lecz destabilizuje trening przy zaszumionych etykietach
