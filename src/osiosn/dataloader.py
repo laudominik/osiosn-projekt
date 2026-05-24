@@ -3,7 +3,6 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 import numpy as np
-import random
 
 CIFAR100_MEAN = (0.5071, 0.4865, 0.4409)
 CIFAR100_STD  = (0.2673, 0.2564, 0.2762)
@@ -69,6 +68,10 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
 
 
 class WasteSortingDataModule(pl.LightningDataModule):
+    train_dataset: "_TransformDataset"  # pyright: ignore
+    val_dataset: "_TransformDataset"  # pyright: ignore
+    test_dataset: "_TransformDataset"  # pyright: ignore
+
     def __init__(
         self,
         data_dir: str = "./data",
@@ -101,18 +104,18 @@ class WasteSortingDataModule(pl.LightningDataModule):
         dataset.targets = [CLASS_MAPPING[dataset.targets[i]] for i in indices]
         return dataset
 
-    def _add_label_noise(self, targets: list) -> list:
+    def _add_label_noise(self, targets: list[int]) -> list[int]:
         """Symmetric label noise: randomly flip noise_rate fraction of labels."""
         rng = np.random.default_rng(self.seed)
-        targets = np.array(targets)
-        n = len(targets)
+        arr = np.array(targets)
+        n = len(arr)
         flip_mask = rng.random(n) < self.noise_rate
         num_classes = len(CLASS_NAMES)
         for i in np.where(flip_mask)[0]:
             # pick uniformly from the other classes
-            other = [c for c in range(num_classes) if c != targets[i]]
-            targets[i] = rng.choice(other)
-        return targets.tolist()
+            other = [c for c in range(num_classes) if c != arr[i]]
+            arr[i] = rng.choice(other)
+        return arr.tolist()
 
     def setup(self, stage=None):
         if stage in ("fit", None):
@@ -174,7 +177,7 @@ class WasteSortingDataModule(pl.LightningDataModule):
         return len(self.train_dataset) if hasattr(self, "train_dataset") else None
 
 
-class _TransformDataset(Dataset):
+class _TransformDataset(Dataset[tuple[torch.Tensor, int]]):
     def __init__(self, subset, transform):
         self.transform = transform
         to_tensor = transforms.ToTensor()
