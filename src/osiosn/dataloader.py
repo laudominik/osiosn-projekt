@@ -31,7 +31,7 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
     norm = transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD)
     noise = AddGaussianNoise(0.0, image_noise_std)
 
-    eval_t = transforms.Compose([transforms.ToTensor(), norm])
+    eval_t = transforms.Compose([norm])
 
     if strategy == "none":
         train_t = eval_t
@@ -39,7 +39,6 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
         train_t = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
             noise,
             norm,
         ])
@@ -49,7 +48,6 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
             transforms.RandomHorizontalFlip(),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
             transforms.RandomGrayscale(p=0.1),
-            transforms.ToTensor(),
             noise,
             norm,
         ])
@@ -61,7 +59,6 @@ def build_transforms(strategy: str, image_noise_std: float = 0.01):
             transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
             transforms.RandomGrayscale(p=0.15),
             transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
-            transforms.ToTensor(),
             AddGaussianNoise(0.0, image_noise_std * 2),
             norm,
         ])
@@ -179,12 +176,13 @@ class WasteSortingDataModule(pl.LightningDataModule):
 
 class _TransformDataset(Dataset):
     def __init__(self, subset, transform):
-        self.subset = subset
         self.transform = transform
+        to_tensor = transforms.ToTensor()
+        self.cache = [(to_tensor(x), y) for x, y in (subset[i] for i in range(len(subset)))]
 
     def __getitem__(self, idx):
-        x, y = self.subset[idx]
+        x, y = self.cache[idx]
         return self.transform(x), y
 
     def __len__(self):
-        return len(self.subset)
+        return len(self.cache)
